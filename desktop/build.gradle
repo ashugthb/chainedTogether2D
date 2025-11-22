@@ -1,0 +1,54 @@
+sourceCompatibility = JavaVersion.VERSION_17
+targetCompatibility = JavaVersion.VERSION_17
+sourceSets.main.java.srcDirs = [ "src/" ]
+sourceSets.main.resources.srcDirs = ["../assets"]
+
+project.ext.mainClassName = "com.chainedclimber.DesktopLauncher"
+project.ext.assetsDir = new File("../assets")
+
+import org.gradle.internal.os.OperatingSystem
+
+tasks.register('run', JavaExec) {
+    dependsOn classes
+    mainClass = project.mainClassName
+    classpath = sourceSets.main.runtimeClasspath
+    standardInput = System.in
+    workingDir = project.assetsDir
+    ignoreExitValue = true
+
+    if (OperatingSystem.current() == OperatingSystem.MAC_OS) {
+        jvmArgs += "-XstartOnFirstThread"
+    }
+}
+
+// Fast development mode - watches for changes and rebuilds
+tasks.register('runDev', JavaExec) {
+    dependsOn classes
+    mainClass = project.mainClassName
+    classpath = sourceSets.main.runtimeClasspath
+    standardInput = System.in
+    workingDir = project.assetsDir
+    ignoreExitValue = true
+    
+    // Development JVM args for faster startup
+    jvmArgs = ['-Xms256M', '-Xmx1G']
+    
+    if (OperatingSystem.current() == OperatingSystem.MAC_OS) {
+        jvmArgs += "-XstartOnFirstThread"
+    }
+}
+
+tasks.register('dist', Jar) {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': project.mainClassName
+    }
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    with jar
+}
+
+dist.dependsOn classes
+
