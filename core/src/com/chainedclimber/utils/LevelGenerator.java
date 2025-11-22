@@ -10,6 +10,7 @@ import com.chainedclimber.entities.Goal;
 import com.chainedclimber.entities.IceBlock;
 import com.chainedclimber.entities.MovingPlatform;
 import com.chainedclimber.entities.Platform;
+import com.chainedclimber.entities.Ramp;
 import com.chainedclimber.entities.Spike;
 
 /**
@@ -64,7 +65,9 @@ public class LevelGenerator {
                         levelData.iceBlocks.add(new IceBlock(x, y, cellWidth, cellHeight));
                         break;
                     case BlockType.MOVING_PLATFORM:
-                        levelData.movingPlatforms.add(new MovingPlatform(x, y, cellWidth, cellHeight));
+                        // Moving platform - will be configured with paths later
+                        MovingPlatform mp = new MovingPlatform(x, y, cellWidth, cellHeight);
+                        levelData.movingPlatforms.add(mp);
                         break;
                     case BlockType.BREAKABLE:
                         levelData.breakableBlocks.add(new BreakableBlock(x, y, cellWidth, cellHeight));
@@ -75,20 +78,44 @@ public class LevelGenerator {
                     case BlockType.GOAL:
                         levelData.goals.add(new Goal(x, y, cellWidth, cellHeight));
                         break;
+                    case BlockType.RAMP_RIGHT:
+                        levelData.ramps.add(new Ramp(x, y, cellWidth, cellHeight, true));
+                        break;
+                    case BlockType.RAMP_LEFT:
+                        levelData.ramps.add(new Ramp(x, y, cellWidth, cellHeight, false));
+                        break;
                 }
             }
         }
         
-        System.out.println("Generated entities - Platforms: " + levelData.platforms.size() +
-                         ", Spikes: " + levelData.spikes.size() +
-                         ", Bouncy: " + levelData.bouncyBlocks.size() +
-                         ", Ice: " + levelData.iceBlocks.size() +
-                         ", Moving: " + levelData.movingPlatforms.size() +
-                         ", Breakable: " + levelData.breakableBlocks.size() +
-                         ", Checkpoints: " + levelData.checkpoints.size() +
-                         ", Goals: " + levelData.goals.size());
+        // Configure moving platform paths if specified
+        List<MovingPlatformConfig> mpConfigs = matrix.getMovingPlatformPaths();
+        if (!mpConfigs.isEmpty() && !levelData.movingPlatforms.isEmpty()) {
+            configureMovingPlatforms(levelData, mpConfigs, cellWidth);
+        }
         
         return levelData;
+    }
+    
+    /**
+     * Configure moving platforms with their travel distances
+     * Matches moving platforms to their path configurations
+     */
+    private static void configureMovingPlatforms(LevelData levelData, 
+                                                 List<MovingPlatformConfig> configs,
+                                                 float cellWidth) {
+        int platformIndex = 0;
+        for (MovingPlatformConfig config : configs) {
+            if (platformIndex >= levelData.movingPlatforms.size()) {
+                break; // No more platforms to configure
+            }
+            
+            MovingPlatform platform = levelData.movingPlatforms.get(platformIndex);
+            float travelDistance = config.getTravelDistance(cellWidth);
+            platform.setTravelDistance(travelDistance);
+            
+            platformIndex++;
+        }
     }
     
     /**
@@ -259,5 +286,41 @@ public class LevelGenerator {
         
         level.setMatrix(design);
         return level;
+    }
+    
+    /**
+     * Create level 3 - Moving Platforms Showcase
+     * Demonstrates easy configuration: "platform moves from column X to column Y"
+     * @ marks the spawn point in the matrix
+     */
+    public static LevelMatrix createLevel3() {
+        LevelMatrix level = new LevelMatrix(10, 16);
+        
+        // SIMPLE TEST LEVEL - Just one moving platform to debug
+        int A = BlockType.AIR;
+        int P = BlockType.PLATFORM;
+        int M = BlockType.MOVING_PLATFORM;
+        int X = BlockType.SPAWN_POINT;
+        
+        int[][] design = {
+    // Cols: 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+    /* R0 */ {A, A, A, A, A, A, A, A, A, A, A, A, A, A, A, A},
+    /* R1 */ {A, A, A, A, A, A, A, A, A, A, A, A, A, A, A, A},
+    /* R2 */ {A, A, A, A, A, A, A, A, A, A, A, A, A, A, A, A},
+    /* R3 */ {A, A, A, A, A, A, A, A, A, A, A, A, A, A, A, A},
+    /* R4 */ {A, A, A, A, A, A, A, A, A, A, A, A, A, A, A, A},
+    /* R5 */ {A, A, A, A, A, A, A, A, A, A, A, A, A, A, A, A},
+    /* R6 */ {A, A, A, X, A, A, A, A, A, A, A, A, A, A, A, A}, // Spawn ABOVE platform (player will fall onto it)
+    /* R7 */ {A, A, A, M, A, A, A, A, A, A, A, A, A, A, A, A}, // Moving platform
+    /* R8 */ {A, A, A, A, A, A, A, A, A, A, A, A, A, A, A, A},
+    /* R9 */ {P, P, P, P, P, P, P, P, P, P, P, P, P, P, P, P}  // Ground
+    };
+    
+    level.setMatrix(design);
+    
+    // Add moving platform path: oscillates horizontally between columns 0 and 4
+    level.addMovingPlatformPath(7, 0, 4);
+    
+    return level;
     }
 }

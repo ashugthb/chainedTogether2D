@@ -1,18 +1,44 @@
 package com.chainedclimber.entities;
 
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Rectangle;
 import com.chainedclimber.utils.Constants;
+import com.chainedclimber.utils.TextureManager;
 
 public class Platform {
     private Rectangle bounds;
     private boolean isGround;
+    private static TextureRegion platformTexture;
     
     public Platform(float x, float y, float width, float height, boolean isGround) {
         this.bounds = new Rectangle(x, y, width, height);
         this.isGround = isGround;
+        
+        // Load texture once (lazy loading)
+        if (platformTexture == null) {
+            platformTexture = TextureManager.getInstance().getTextureRegion("platform.png");
+        }
     }
     
+    // Texture-based rendering (efficient)
+    public void renderTexture(SpriteBatch batch) {
+        if (platformTexture != null) {
+            // Tile the texture to fill the platform
+            float tileWidth = 200f; // Platform texture size
+            float tileHeight = 30f;
+            
+            float x = bounds.x;
+            while (x < bounds.x + bounds.width) {
+                float drawWidth = Math.min(tileWidth, bounds.x + bounds.width - x);
+                batch.draw(platformTexture, x, bounds.y, drawWidth, bounds.height);
+                x += tileWidth;
+            }
+        }
+    }
+    
+    // Legacy shape rendering (fallback)
     public void render(ShapeRenderer renderer) {
         // Draw platform fill
         if (isGround) {

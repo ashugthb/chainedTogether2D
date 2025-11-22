@@ -20,14 +20,17 @@ import com.chainedclimber.entities.IceBlock;
 import com.chainedclimber.entities.MovingPlatform;
 import com.chainedclimber.entities.Platform;
 import com.chainedclimber.entities.Player;
+import com.chainedclimber.entities.Ramp;
 import com.chainedclimber.entities.Spike;
 import com.chainedclimber.systems.InputController;
 import com.chainedclimber.systems.RenderCuller;
 import com.chainedclimber.systems.SpatialHash;
+import com.chainedclimber.utils.BlockType;
 import com.chainedclimber.utils.Constants;
 import com.chainedclimber.utils.LevelData;
 import com.chainedclimber.utils.LevelGenerator;
 import com.chainedclimber.utils.LevelMatrix;
+import com.chainedclimber.utils.TextureManager;
 
 public class GameScreen implements Screen {
     private ChainedClimberGame game;
@@ -60,6 +63,9 @@ public class GameScreen implements Screen {
     private int renderedEntities = 0;
     private int totalEntities = 0;
     
+    // Moving platform tracking - stores the platform player is currently standing on
+    private MovingPlatform currentMovingPlatform = null;
+    
     public GameScreen(ChainedClimberGame game) {
         this.game = game;
         
@@ -74,13 +80,16 @@ public class GameScreen implements Screen {
         spriteBatch = new SpriteBatch();
         inputController = new InputController();
         
+        // Initialize texture manager and preload textures
+        TextureManager.getInstance().preloadGameTextures();
+        
         // Initialize performance systems
         renderCuller = new RenderCuller();
         platformSpatialHash = new SpatialHash<>(Constants.WORLD_WIDTH / 8f); // 8x8 grid
         spikeSpatialHash = new SpatialHash<>(Constants.WORLD_WIDTH / 8f);
         
-        // Generate level from matrix - USE LEVEL 2 with all block types!
-        LevelMatrix levelMatrix = LevelGenerator.createLevel2();
+        // Generate level from matrix - USE LEVEL 2 with moving platforms!
+        LevelMatrix levelMatrix = LevelGenerator.createLevel2(); // Level 2: All block types showcase
         levelMatrix.printMatrix(); // Debug output
         levelData = LevelGenerator.generateAllEntities(levelMatrix);
         
@@ -91,15 +100,41 @@ public class GameScreen implements Screen {
         totalEntities = levelData.platforms.size() + levelData.spikes.size() + 
                        levelData.bouncyBlocks.size() + levelData.iceBlocks.size() +
                        levelData.movingPlatforms.size() + levelData.breakableBlocks.size() +
-                       levelData.checkpoints.size() + levelData.goals.size();
+                       levelData.checkpoints.size() + levelData.goals.size() + levelData.ramps.size();
         
-        System.out.println("Performance: Total entities loaded: " + totalEntities);
+        // Find spawn point in matrix (marked with @/SPAWN_POINT)
+        Vector2 spawnPoint = findSpawnPointInMatrix(levelMatrix);
+        player = new Player(spawnPoint.x, spawnPoint.y);
+        lastCheckpoint = new Vector2(spawnPoint.x, spawnPoint.y);
+    }
+    
+    /**
+     * Find spawn point marked in the level matrix
+     * If not found, default to safe position on ground
+     */
+    private Vector2 findSpawnPointInMatrix(LevelMatrix matrix) {
+        // Search matrix for SPAWN_POINT block
+        for (int row = 0; row < matrix.getRows(); row++) {
+            for (int col = 0; col < matrix.getColumns(); col++) {
+                if (matrix.getCell(row, col) == BlockType.SPAWN_POINT) {
+                    // Found spawn point, convert to world coordinates
+                    float[] worldPos = matrix.gridToWorld(row, col);
+                    float worldX = worldPos[0];
+                    float worldY = worldPos[1];
+                    
+                    // Spawn on top of the spawn block
+                    worldY += Constants.PLATFORM_HEIGHT;
+                    
+                    return new Vector2(worldX, worldY);
+                }
+            }
+        }
         
-        // Create player (start on ground platform at bottom-left)
-        float startX = 100; // Start 100 pixels from left
-        float startY = levelMatrix.getCellHeight(); // Start on ground level
-        player = new Player(startX, startY);
-        lastCheckpoint = new Vector2(startX, startY);
+        // No spawn point found - default to ground level
+        float[] defaultPos = matrix.gridToWorld(matrix.getRows() - 1, 1);
+        float defaultX = defaultPos[0];
+        float defaultY = defaultPos[1] + Constants.PLATFORM_HEIGHT;
+        return new Vector2(defaultX, defaultY);
     }
     
     /**
@@ -151,7 +186,62 @@ public class GameScreen implements Screen {
      * Fixed timestep physics update for consistent simulation
      */
     private void updatePhysics(float delta) {
-        // Handle input
+        // STEP 1: Update moving platforms FIRST and store their movement
+        for (MovingPlatform mp : levelData.movingPlatforms) {
+            if (mp != null) {
+                mp.setLevelData(levelData);
+                // Store position before update
+                float oldX = mp.getBounds().x;
+                float oldY = mp.getBounds().y;
+                
+                // Update platform
+                mp.update(delta);
+                
+                // Calculate actual delta movement
+                float deltaX = mp.getBounds().x - oldX;
+                float deltaY = mp.getBounds().y - oldY;
+                mp.setLastDelta(deltaX, deltaY); // Store the actual movement
+            }
+        }
+        
+        // STEP 2: Check if player is standing on a moving platform and apply platform movement
+        MovingPlatform ridingPlatform = null;
+        Rectangle pBounds = player.getBounds();
+        
+        for (MovingPlatform mp : levelData.movingPlatforms) {
+            Rectangle mpBounds = mp.getBounds();
+            
+            // Calculate vertical distance between player's feet and platform's top surface
+            float playerBottom = pBounds.y;
+            float platformTop = mpBounds.y + mpBounds.height;
+            float verticalDistance = Math.abs(playerBottom - platformTop);
+            
+            // Check if player horizontally overlaps with platform
+            boolean horizontalOverlap = (pBounds.x < mpBounds.x + mpBounds.width) && 
+                                       (pBounds.x + pBounds.width > mpBounds.x);
+            
+            // Determine if player is standing on the platform:
+            // 1. Player must horizontally overlap with platform
+            // 2. Player's feet must be within 2 pixels of platform top (allows edge-touching)
+            // 3. Player must not be jumping upward
+            boolean standingOnPlatform = horizontalOverlap && 
+                                        (verticalDistance <= 2) && 
+                                        (player.getVelocity().y <= 0);
+            
+            if (standingOnPlatform) {
+                ridingPlatform = mp;
+                player.setGrounded(true);
+                
+                // Apply platform's movement delta to player position
+                player.getPosition().x += mp.getLastDeltaX();
+                player.getPosition().y += mp.getLastDeltaY();
+                player.getBounds().setPosition(player.getPosition().x, player.getPosition().y);
+                
+                break;
+            }
+        }
+        
+        // STEP 3: Handle player input
         inputController.update();
         
         if (inputController.isLeftPressed()) {
@@ -166,13 +256,8 @@ public class GameScreen implements Screen {
             player.jump();
         }
         
-        // Update game state
+        // STEP 4: Update player physics (normal movement)
         player.update(delta);
-        
-        // Update moving platforms
-        for (MovingPlatform mp : levelData.movingPlatforms) {
-            mp.update(delta);
-        }
         
         // Update breakable blocks
         for (BreakableBlock bb : levelData.breakableBlocks) {
@@ -214,20 +299,41 @@ public class GameScreen implements Screen {
             }
         }
         
-        // Check collisions with ice blocks
+        // Check collisions with ice blocks (solid with low friction)
         for (IceBlock ice : levelData.iceBlocks) {
+            // Treat ice as solid platform
+            Platform icePlatform = new Platform(ice.getBounds().x, ice.getBounds().y,
+                                               ice.getBounds().width, ice.getBounds().height, false);
+            player.checkCollision(icePlatform);
+            
+            // Apply friction reduction when player is on top
             if (player.getBounds().overlaps(ice.getBounds())) {
                 float overlapTop = (ice.getBounds().y + ice.getBounds().height) - player.getBounds().y;
-                if (overlapTop < 10) { // Player is on top
+                if (overlapTop < 10 && overlapTop > 0) { // Player is on top
                     player.setFrictionMultiplier(ice.getFrictionMultiplier());
                 }
             }
         }
         
-        // Check collisions with moving platforms
+        // Handle moving platform collisions (treat as solid obstacles)
+        // Platform movement is already applied via setPlatformVelocity() before player.update()
+        currentMovingPlatform = ridingPlatform;
+        
         for (MovingPlatform mp : levelData.movingPlatforms) {
-            player.checkCollision(new Platform(mp.getBounds().x, mp.getBounds().y, 
-                                              mp.getBounds().width, mp.getBounds().height, false));
+            // Only do collision check if NOT riding this platform
+            if (mp != ridingPlatform) {
+                Rectangle mpBounds = mp.getBounds();
+                Platform solidPlatform = new Platform(mpBounds.x, mpBounds.y, 
+                                                     mpBounds.width, mpBounds.height, false);
+                player.checkCollision(solidPlatform);
+            }
+        }
+        
+        // Check collisions with ramps (diagonal platforms with vertical walls)
+        for (Ramp ramp : levelData.ramps) {
+            if (ramp.checkCollision(player.getBounds(), player.getPosition(), player.getVelocity())) {
+                player.setGrounded(true);
+            }
         }
         
         // Check collisions with breakable blocks (only if not broken)
@@ -247,12 +353,11 @@ public class GameScreen implements Screen {
             }
         }
         
-        // OPTIMIZED: Check collisions only with nearby spikes
+        // Check collisions only with nearby spikes
         for (Spike spike : nearbySpikes) {
             if (spike.checkCollision(playerBounds)) {
                 // Player hit spike - respawn at last checkpoint
                 player.resetPosition(lastCheckpoint);
-                System.out.println("Player hit spike! Respawning at checkpoint.");
             }
         }
         
@@ -261,7 +366,6 @@ public class GameScreen implements Screen {
             if (!cp.isActivated() && cp.checkCollision(player.getBounds())) {
                 cp.activate();
                 lastCheckpoint = cp.getSpawnPosition();
-                System.out.println("Checkpoint activated!");
             }
         }
         
@@ -269,7 +373,6 @@ public class GameScreen implements Screen {
         for (Goal goal : levelData.goals) {
             if (goal.checkCollision(player.getBounds())) {
                 levelComplete = true;
-                System.out.println("LEVEL COMPLETE!");
             }
         }
         
@@ -348,6 +451,12 @@ public class GameScreen implements Screen {
                 renderedEntities++;
             }
         }
+        for (Ramp ramp : levelData.ramps) {
+            if (renderCuller.isVisible(ramp.getBounds())) {
+                ramp.render(shapeRenderer);
+                renderedEntities++;
+            }
+        }
         for (BreakableBlock bb : levelData.breakableBlocks) {
             if (!bb.isBroken() && renderCuller.isVisible(bb.getBounds())) {
                 bb.render(shapeRenderer);
@@ -369,11 +478,42 @@ public class GameScreen implements Screen {
         
         shapeRenderer.end();
         
-        // Render player with sprite
+        // Render all entities with textures (efficient batch rendering)
         spriteBatch.setProjectionMatrix(camera.combined);
         spriteBatch.begin();
+        
+        // Render platforms with texture
+        for (Platform platform : levelData.platforms) {
+            if (renderCuller.isVisible(platform.getBounds())) {
+                platform.renderTexture(spriteBatch);
+            }
+        }
+        
+        // Render ice blocks with texture
+        for (IceBlock ice : levelData.iceBlocks) {
+            if (renderCuller.isVisible(ice.getBounds())) {
+                ice.renderTexture(spriteBatch);
+            }
+        }
+        
+        // Render ramps with texture
+        for (Ramp ramp : levelData.ramps) {
+            if (renderCuller.isVisible(ramp.getBounds())) {
+                ramp.renderTexture(spriteBatch);
+            }
+        }
+        
+        // Render spikes with texture
+        for (Spike spike : levelData.spikes) {
+            if (renderCuller.isVisible(spike.getBounds())) {
+                spike.renderTexture(spriteBatch);
+            }
+        }
+        
+        // Render player sprite (bigger now!)
         player.updateDirection(Gdx.graphics.getDeltaTime());
         player.renderSprite(spriteBatch);
+        
         spriteBatch.end();
         
         // OPTIMIZED: Render borders only for visible entities
@@ -403,6 +543,11 @@ public class GameScreen implements Screen {
         for (MovingPlatform mp : levelData.movingPlatforms) {
             if (renderCuller.isVisible(mp.getBounds())) {
                 mp.renderBorder(shapeRenderer);
+            }
+        }
+        for (Ramp ramp : levelData.ramps) {
+            if (renderCuller.isVisible(ramp.getBounds())) {
+                ramp.renderBorder(shapeRenderer);
             }
         }
         for (BreakableBlock bb : levelData.breakableBlocks) {
@@ -690,5 +835,6 @@ public class GameScreen implements Screen {
         shapeRenderer.dispose();
         spriteBatch.dispose();
         player.dispose();
+        TextureManager.getInstance().dispose();
     }
 }

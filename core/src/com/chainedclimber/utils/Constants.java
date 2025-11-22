@@ -11,9 +11,9 @@ public class Constants {
     public static final float MOVE_SPEED = 200f;  // Pixels per second
     public static final float MAX_FALL_SPEED = 800f;  // Pixels per second
     
-    // Player dimensions
-    public static final float PLAYER_WIDTH = 32f;
-    public static final float PLAYER_HEIGHT = 64f;
+    // Player dimensions (increased for better visibility - maintaining 1:2 aspect ratio)
+    public static final float PLAYER_WIDTH = 64f;
+    public static final float PLAYER_HEIGHT = 96f;
     
     // Platform dimensions
     public static final float PLATFORM_HEIGHT = 30f;

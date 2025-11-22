@@ -1,5 +1,8 @@
 package com.chainedclimber.utils;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Matrix-based level generator
  * Creates platforms based on a 2D grid where:
@@ -21,6 +24,9 @@ public class LevelMatrix {
     // Level data (1 = platform, 0 = air)
     private int[][] matrix;
     
+    // Moving platform configurations
+    private List<MovingPlatformConfig> movingPlatformPaths;
+    
     /**
      * Create a level matrix
      * @param gridRows Number of rows (height divisions)
@@ -36,6 +42,28 @@ public class LevelMatrix {
         
         // Initialize empty matrix
         this.matrix = new int[gridRows][gridColumns];
+        
+        // Initialize moving platform configurations
+        this.movingPlatformPaths = new ArrayList<>();
+    }
+    
+    /**
+     * Add a moving platform path configuration
+     * Simple way to specify: "platform at row X moves from column A to column B"
+     * 
+     * @param row The row where the moving platform is placed
+     * @param startCol Starting column (where M block is in matrix)
+     * @param endCol Ending column (where platform will move to)
+     */
+    public void addMovingPlatformPath(int row, int startCol, int endCol) {
+        movingPlatformPaths.add(new MovingPlatformConfig(row, startCol, endCol));
+    }
+    
+    /**
+     * Get all moving platform path configurations
+     */
+    public List<MovingPlatformConfig> getMovingPlatformPaths() {
+        return movingPlatformPaths;
     }
     
     /**
@@ -151,22 +179,22 @@ public class LevelMatrix {
      * Print matrix to console for debugging with block type visualization
      */
     public void printMatrix() {
-        System.out.println("═══════════════════════════════════════");
+        System.out.println("=======================================");
         System.out.println("Level Matrix (" + gridRows + "x" + gridColumns + "):");
-        System.out.println("═══════════════════════════════════════");
+        System.out.println("=======================================");
         for (int row = 0; row < gridRows; row++) {
-            System.out.print("│ ");
+            System.out.print("| ");
             for (int col = 0; col < gridColumns; col++) {
                 System.out.print(BlockType.getDisplayChar(matrix[row][col]) + " ");
             }
-            System.out.println("│");
+            System.out.println("|");
         }
-        System.out.println("═══════════════════════════════════════");
+        System.out.println("=======================================");
         
         // Print legend
         System.out.println("\nBlock Legend:");
-        System.out.println("  · = Air    █ = Platform    ▲ = Spike");
-        System.out.println("  ≈ = Bouncy ❄ = Ice        ○ = Coin");
-        System.out.println("  ⚑ = Checkpoint  ★ = Goal");
+        System.out.println("  . = Air    # = Platform    ^ = Spike");
+        System.out.println("  ~ = Bouncy * = Ice        o = Coin");
+        System.out.println("  F = Checkpoint  G = Goal");
     }
 }

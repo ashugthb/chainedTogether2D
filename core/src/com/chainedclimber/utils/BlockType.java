@@ -17,6 +17,9 @@ public class BlockType {
     public static final int CHECKPOINT = 7;
     public static final int GOAL = 8;
     public static final int COIN = 9;
+    public static final int SPAWN_POINT = 19;  // Player spawn location
+    public static final int RAMP_RIGHT = 17;  // Ramp going up to the right
+    public static final int RAMP_LEFT = 18;   // Ramp going up to the left
     
     // Advanced blocks (10+)
     public static final int ONE_WAY_PLATFORM = 10;
@@ -37,6 +40,8 @@ public class BlockType {
             case MOVING_PLATFORM:
             case BREAKABLE:
             case BOUNCY:
+            case RAMP_RIGHT:
+            case RAMP_LEFT:
                 return true;
             default:
                 return false;
@@ -111,6 +116,9 @@ public class BlockType {
             case CHECKPOINT: return "Checkpoint";
             case GOAL: return "Goal";
             case COIN: return "Coin";
+            case RAMP_RIGHT: return "Ramp Right";
+            case RAMP_LEFT: return "Ramp Left";
+            case SPAWN_POINT: return "Spawn Point";
             case ONE_WAY_PLATFORM: return "One-Way Platform";
             case STICKY_WALL: return "Sticky Wall";
             case SPEED_BOOST: return "Speed Boost";
@@ -137,6 +145,9 @@ public class BlockType {
             case CHECKPOINT: return "⚑";
             case GOAL: return "★";
             case COIN: return "○";
+            case RAMP_RIGHT: return "/";
+            case RAMP_LEFT: return "\\\\";
+            case SPAWN_POINT: return "@";
             case ONE_WAY_PLATFORM: return "⌃";
             case STICKY_WALL: return "▓";
             case SPEED_BOOST: return "»";
@@ -162,6 +173,9 @@ public class BlockType {
             case CHECKPOINT: return new float[]{0.3f, 0.8f, 0.3f}; // Green
             case GOAL: return new float[]{1.0f, 0.8f, 0.0f}; // Gold
             case COIN: return new float[]{1.0f, 0.9f, 0.2f}; // Yellow
+            case RAMP_RIGHT: return new float[]{0.7f, 0.6f, 0.4f}; // Tan
+            case RAMP_LEFT: return new float[]{0.7f, 0.6f, 0.4f}; // Tan
+            case SPAWN_POINT: return new float[]{0.0f, 1.0f, 0.0f}; // Bright green
             case ONE_WAY_PLATFORM: return new float[]{0.4f, 0.7f, 0.4f}; // Green
             case STICKY_WALL: return new float[]{0.5f, 0.3f, 0.2f}; // Dark brown
             case SPEED_BOOST: return new float[]{1.0f, 0.5f, 0.0f}; // Orange

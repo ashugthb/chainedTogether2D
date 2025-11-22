@@ -10,6 +10,7 @@ import com.chainedclimber.entities.Goal;
 import com.chainedclimber.entities.IceBlock;
 import com.chainedclimber.entities.MovingPlatform;
 import com.chainedclimber.entities.Platform;
+import com.chainedclimber.entities.Ramp;
 import com.chainedclimber.entities.Spike;
 
 /**
@@ -24,6 +25,7 @@ public class LevelData {
     public List<BreakableBlock> breakableBlocks = new ArrayList<>();
     public List<Checkpoint> checkpoints = new ArrayList<>();
     public List<Goal> goals = new ArrayList<>();
+    public List<Ramp> ramps = new ArrayList<>();
     
     public LevelData() {
     }

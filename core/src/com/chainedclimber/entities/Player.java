@@ -167,7 +167,7 @@ public class Player {
         }
     }
     
-    // Sprite-based rendering
+    // Sprite-based rendering with smooth scaling
     public void renderSprite(SpriteBatch batch) {
         if (playerTexture != null && playerRegion != null) {
             // Flip sprite based on direction
@@ -177,9 +177,15 @@ public class Player {
                 playerRegion.flip(true, false);
             }
             
-            // Draw the sprite
-            batch.draw(playerRegion, position.x, position.y, 
-                       Constants.PLAYER_WIDTH, Constants.PLAYER_HEIGHT);
+            // Draw the sprite with smooth scaling and slight offset for better visuals
+            // Add a small Y offset to make sprite look more grounded
+            float renderWidth = Constants.PLAYER_WIDTH;
+            float renderHeight = Constants.PLAYER_HEIGHT;
+            float offsetY = -4; // Slight offset to make feet touch ground better
+            
+            batch.draw(playerRegion, 
+                       position.x, position.y + offsetY, 
+                       renderWidth, renderHeight);
         }
     }
     
@@ -196,6 +202,10 @@ public class Player {
     
     public Vector2 getPosition() {
         return position;
+    }
+    
+    public Vector2 getVelocity() {
+        return velocity;
     }
     
     public Rectangle getBounds() {
