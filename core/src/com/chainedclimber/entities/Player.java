@@ -1,5 +1,9 @@
 package com.chainedclimber.entities;
 
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
@@ -12,11 +16,25 @@ public class Player {
     private Rectangle bounds;
     private float frictionMultiplier = 1.0f; // For ice blocks
     
+    // Graphics
+    private Texture playerTexture;
+    private TextureRegion playerRegion;
+    private boolean facingRight = true;
+    private float animationTimer = 0f;
+    
     public Player(float startX, float startY) {
         this.position = new Vector2(startX, startY);
         this.velocity = new Vector2(0, 0);
         this.grounded = false;
         this.bounds = new Rectangle(startX, startY, Constants.PLAYER_WIDTH, Constants.PLAYER_HEIGHT);
+        
+        // Load player sprite
+        try {
+            playerTexture = new Texture(Gdx.files.internal("caveman.png"));
+            playerRegion = new TextureRegion(playerTexture);
+        } catch (Exception e) {
+            Gdx.app.error("Player", "Failed to load player texture: " + e.getMessage());
+        }
     }
     
     public void update(float deltaTime) {
@@ -136,6 +154,7 @@ public class Player {
         }
     }
     
+    // Legacy rendering with shapes (fallback)
     public void render(ShapeRenderer renderer) {
         // Render player body (bright green)
         renderer.setColor(Constants.PLAYER_COLOR[0], Constants.PLAYER_COLOR[1], Constants.PLAYER_COLOR[2], 1);
@@ -145,6 +164,33 @@ public class Player {
         if (grounded) {
             renderer.setColor(0f, 0.6f, 0f, 1);
             renderer.rect(position.x, position.y, Constants.PLAYER_WIDTH, 3);
+        }
+    }
+    
+    // Sprite-based rendering
+    public void renderSprite(SpriteBatch batch) {
+        if (playerTexture != null && playerRegion != null) {
+            // Flip sprite based on direction
+            if (!playerRegion.isFlipX() && !facingRight) {
+                playerRegion.flip(true, false);
+            } else if (playerRegion.isFlipX() && facingRight) {
+                playerRegion.flip(true, false);
+            }
+            
+            // Draw the sprite
+            batch.draw(playerRegion, position.x, position.y, 
+                       Constants.PLAYER_WIDTH, Constants.PLAYER_HEIGHT);
+        }
+    }
+    
+    // Update facing direction based on movement
+    public void updateDirection(float deltaTime) {
+        animationTimer += deltaTime;
+        
+        if (velocity.x > 0) {
+            facingRight = true;
+        } else if (velocity.x < 0) {
+            facingRight = false;
         }
     }
     
@@ -177,5 +223,12 @@ public class Player {
         position.set(spawnPos);
         velocity.set(0, 0);
         grounded = false;
+    }
+    
+    // Dispose resources
+    public void dispose() {
+        if (playerTexture != null) {
+            playerTexture.dispose();
+        }
     }
 }

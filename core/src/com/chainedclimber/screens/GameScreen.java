@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
@@ -33,6 +34,7 @@ public class GameScreen implements Screen {
     private OrthographicCamera camera;
     private Viewport viewport;
     private ShapeRenderer shapeRenderer;
+    private SpriteBatch spriteBatch;
     
     private Player player;
     private LevelData levelData;
@@ -69,6 +71,7 @@ public class GameScreen implements Screen {
         
         shapeRenderer = new ShapeRenderer();
         shapeRenderer.setAutoShapeType(true); // Optimization: auto-switch shape types
+        spriteBatch = new SpriteBatch();
         inputController = new InputController();
         
         // Initialize performance systems
@@ -364,10 +367,14 @@ public class GameScreen implements Screen {
             }
         }
         
-        // Always render player
-        player.render(shapeRenderer);
-        
         shapeRenderer.end();
+        
+        // Render player with sprite
+        spriteBatch.setProjectionMatrix(camera.combined);
+        spriteBatch.begin();
+        player.updateDirection(Gdx.graphics.getDeltaTime());
+        player.renderSprite(spriteBatch);
+        spriteBatch.end();
         
         // OPTIMIZED: Render borders only for visible entities
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
@@ -681,5 +688,7 @@ public class GameScreen implements Screen {
     @Override
     public void dispose() {
         shapeRenderer.dispose();
+        spriteBatch.dispose();
+        player.dispose();
     }
 }
