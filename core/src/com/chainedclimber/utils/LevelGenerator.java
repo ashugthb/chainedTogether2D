@@ -275,8 +275,8 @@ public class LevelGenerator {
         {A, A, A, A, A, A, A, A, A, A, A, A, A, A, A, A}, // Row 0
         {A, G, A, A, A, A, A, A, A, A, A, A, A, A, A, A}, // Row 1: Goal Top Left
         {P, P, P, A, A, A, A, A, A, A, A, A, C, A, C, A}, // Row 2: Goal Platform
-        {A, A, A, A, A, A, I, I, I, P, A, A, P, A, P, A}, // Row 3: Ice approach
-        {A, A, A, A, A, A, A, A, A, A, A, S, P, S, P, S}, // Row 4: Spikes under jumps
+        {A, A, A, A, A, A, A, A, A, P, A, A, P, A, P, A}, // Row 3: Ice approach
+        {A, A, A, A, A, I, I, P, P, P, A, S, P, S, P, S}, // Row 4: Spikes under jumps
         {A, A, A, A, K, A, A, A, A, A, P, P, P, P, P, P}, // Row 5: Checkpoint
         {A, A, A, P, P, P, A, A, A, A, A, A, A, A, A, A}, // Row 6
         {A, C, A, A, A, A, A, B, A, A, A, A, A, A, A, A}, // Row 7: Bouncy helper

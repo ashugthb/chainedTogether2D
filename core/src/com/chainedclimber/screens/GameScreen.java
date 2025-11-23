@@ -636,9 +636,9 @@ public class GameScreen implements Screen {
         // Draw large "LEVEL COMPLETE!" banner
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
         
-        // Banner background - gold with pulse
-        float bannerWidth = 800;
-        float bannerHeight = 150;
+        // Banner background - gold with pulse (scaled proportionally)
+        float bannerWidth = Constants.WORLD_WIDTH * 0.6f;  // 60% of screen width
+        float bannerHeight = 180;
         float bannerX = (Constants.WORLD_WIDTH - bannerWidth) / 2;
         float bannerY = Constants.WORLD_HEIGHT / 2 + 100;
         

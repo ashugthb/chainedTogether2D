@@ -28,9 +28,10 @@ public class Player {
         this.grounded = false;
         this.bounds = new Rectangle(startX, startY, Constants.PLAYER_WIDTH, Constants.PLAYER_HEIGHT);
         
-        // Load player sprite
+        // Load player sprite (PNG with transparent background)
         try {
             playerTexture = new Texture(Gdx.files.internal("caveman.png"));
+            playerTexture.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
             playerRegion = new TextureRegion(playerTexture);
         } catch (Exception e) {
             Gdx.app.error("Player", "Failed to load player texture: " + e.getMessage());
