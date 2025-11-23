@@ -11,6 +11,7 @@ import com.chainedclimber.utils.Constants;
 
 public class Player {
     private Vector2 position;
+    private Vector2 previousPosition;
     private Vector2 velocity;
     private boolean grounded;
     private Rectangle bounds;
@@ -24,6 +25,7 @@ public class Player {
     
     public Player(float startX, float startY) {
         this.position = new Vector2(startX, startY);
+        this.previousPosition = new Vector2(startX, startY);
         this.velocity = new Vector2(0, 0);
         this.grounded = false;
         this.bounds = new Rectangle(startX, startY, Constants.PLAYER_WIDTH, Constants.PLAYER_HEIGHT);
@@ -38,7 +40,7 @@ public class Player {
         }
     }
     
-    public void update(float deltaTime) {
+    public void update(float deltaTime, float worldWidth) {
         // Apply gravity
         if (!grounded) {
             velocity.y -= Constants.GRAVITY * deltaTime;
@@ -53,13 +55,13 @@ public class Player {
         position.x += velocity.x * deltaTime;
         position.y += velocity.y * deltaTime;
         
-        // Keep player within horizontal screen bounds
+        // Keep player within horizontal world bounds (use actual world width)
         if (position.x < 0) {
             position.x = 0;
             velocity.x = 0;
         }
-        if (position.x + Constants.PLAYER_WIDTH > Constants.WORLD_WIDTH) {
-            position.x = Constants.WORLD_WIDTH - Constants.PLAYER_WIDTH;
+        if (position.x + Constants.PLAYER_WIDTH > worldWidth) {
+            position.x = worldWidth - Constants.PLAYER_WIDTH;
             velocity.x = 0;
         }
         
@@ -74,6 +76,39 @@ public class Player {
         
         // Reset grounded state (will be set by collision check)
         grounded = false;
+    }
+
+    // Save previous position for render interpolation
+    public void savePreviousPosition() {
+        previousPosition.set(position);
+    }
+
+    public Vector2 getPreviousPosition() {
+        return previousPosition;
+    }
+
+    // Render sprite with interpolation between previous and current physics states
+    public void renderSpriteInterpolated(SpriteBatch batch, float alpha) {
+        if (playerTexture != null && playerRegion != null) {
+            // Flip sprite based on direction
+            if (!playerRegion.isFlipX() && !facingRight) {
+                playerRegion.flip(true, false);
+            } else if (playerRegion.isFlipX() && facingRight) {
+                playerRegion.flip(true, false);
+            }
+
+            // Interpolate position
+            float interpX = previousPosition.x * (1f - alpha) + position.x * alpha;
+            float interpY = previousPosition.y * (1f - alpha) + position.y * alpha;
+
+            float renderWidth = Constants.PLAYER_WIDTH;
+            float renderHeight = Constants.PLAYER_HEIGHT;
+            float offsetY = -4; // Slight offset to make feet touch ground better
+
+            batch.draw(playerRegion,
+                       interpX, interpY + offsetY,
+                       renderWidth, renderHeight);
+        }
     }
     
     public void moveLeft() {
@@ -103,6 +138,11 @@ public class Player {
     public void checkCollision(Platform platform) {
         Rectangle platformBounds = platform.getBounds();
         
+        // Only check collision if there's actual overlap
+        if (!bounds.overlaps(platformBounds)) {
+            return;
+        }
+        
         float playerBottom = position.y;
         float playerTop = position.y + Constants.PLAYER_HEIGHT;
         float playerLeft = position.x;
@@ -113,45 +153,49 @@ public class Player {
         float platformLeft = platformBounds.x;
         float platformRight = platformBounds.x + platformBounds.width;
         
-        // Check if player overlaps platform
-        if (bounds.overlaps(platformBounds)) {
-            
-            // Calculate overlap on each side
-            float overlapLeft = playerRight - platformLeft;
-            float overlapRight = platformRight - playerLeft;
-            float overlapTop = platformTop - playerBottom;
-            float overlapBottom = playerTop - platformBottom;
-            
-            // Find the smallest overlap (that's the side we hit)
-            float minOverlap = Math.min(Math.min(overlapLeft, overlapRight), 
-                                       Math.min(overlapTop, overlapBottom));
-            
-            // Resolve collision based on smallest overlap
-            if (minOverlap == overlapTop && velocity.y <= 0) {
-                // Landing on top of platform
-                position.y = platformTop;
-                velocity.y = 0;
-                grounded = true;
-                bounds.setPosition(position.x, position.y);
-            }
-            else if (minOverlap == overlapBottom && velocity.y > 0) {
-                // Hit bottom of platform (jumping into it)
-                position.y = platformBottom - Constants.PLAYER_HEIGHT;
-                velocity.y = 0;
-                bounds.setPosition(position.x, position.y);
-            }
-            else if (minOverlap == overlapLeft) {
-                // Hit from left side
-                position.x = platformLeft - Constants.PLAYER_WIDTH;
-                velocity.x = 0;
-                bounds.setPosition(position.x, position.y);
-            }
-            else if (minOverlap == overlapRight) {
-                // Hit from right side
-                position.x = platformRight;
-                velocity.x = 0;
-                bounds.setPosition(position.x, position.y);
-            }
+        // Calculate overlap on each side
+        float overlapLeft = playerRight - platformLeft;
+        float overlapRight = platformRight - playerLeft;
+        float overlapTop = platformTop - playerBottom;
+        float overlapBottom = playerTop - platformBottom;
+        
+        // Add small threshold to prevent micro-jitter from tiny overlaps (0.5 pixels)
+        final float COLLISION_THRESHOLD = 0.5f;
+        
+        // Find the smallest overlap (that's the side we hit)
+        float minOverlap = Math.min(Math.min(overlapLeft, overlapRight), 
+                                   Math.min(overlapTop, overlapBottom));
+        
+        // Only resolve if overlap is significant enough
+        if (minOverlap < COLLISION_THRESHOLD) {
+            return;
+        }
+        
+        // Resolve collision based on smallest overlap with velocity check
+        if (minOverlap == overlapTop && velocity.y <= 0) {
+            // Landing on top of platform
+            position.y = platformTop;
+            velocity.y = 0;
+            grounded = true;
+            bounds.setPosition(position.x, position.y);
+        }
+        else if (minOverlap == overlapBottom && velocity.y > 0) {
+            // Hit bottom of platform (jumping into it)
+            position.y = platformBottom - Constants.PLAYER_HEIGHT;
+            velocity.y = 0;
+            bounds.setPosition(position.x, position.y);
+        }
+        else if (minOverlap == overlapLeft && velocity.x > 0) {
+            // Hit from left side (moving right)
+            position.x = platformLeft - Constants.PLAYER_WIDTH;
+            velocity.x = 0;
+            bounds.setPosition(position.x, position.y);
+        }
+        else if (minOverlap == overlapRight && velocity.x < 0) {
+            // Hit from right side (moving left)
+            position.x = platformRight;
+            velocity.x = 0;
+            bounds.setPosition(position.x, position.y);
         }
     }
     

@@ -60,9 +60,39 @@ project(":android") {
 project(":core") {
     apply plugin: "java-library"
 
-    sourceSets.main.java.srcDirs = [ "src/" ]
+    sourceSets {
+        main {
+            java.srcDirs = [ "src/" ]
+        }
+        test {
+            java.srcDirs = [ "test/" ]
+        }
+    }
 
     dependencies {
         api "com.badlogicgames.gdx:gdx:$gdxVersion"
+        
+        // Testing dependencies
+        testImplementation "org.junit.jupiter:junit-jupiter-api:5.10.0"
+        testImplementation "org.junit.jupiter:junit-jupiter-engine:5.10.0"
+        testImplementation "org.junit.jupiter:junit-jupiter-params:5.10.0"
+        testImplementation "org.mockito:mockito-core:5.5.0"
+        testImplementation "org.mockito:mockito-junit-jupiter:5.5.0"
+        testImplementation "org.assertj:assertj-core:3.24.2"
+        testImplementation "com.badlogicgames.gdx:gdx-backend-headless:$gdxVersion"
+        testImplementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+    }
+    
+    test {
+        useJUnitPlatform()
+        testLogging {
+            events "passed", "skipped", "failed"
+            exceptionFormat "full"
+            showStandardStreams = false
+        }
+        reports {
+            html.required = true
+            junitXml.required = true
+        }
     }
 }

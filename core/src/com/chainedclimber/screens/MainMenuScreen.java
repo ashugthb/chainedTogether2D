@@ -42,10 +42,11 @@ public class MainMenuScreen implements Screen {
         this.buttonFont.setColor(Color.WHITE);
         
         // Create play button (centered, lower part of screen)
+        // Use window dimensions for menu, not world dimensions
         float buttonWidth = 240;
         float buttonHeight = 80;
-        float buttonX = (Constants.WORLD_WIDTH - buttonWidth) / 2;
-        float buttonY = Constants.WORLD_HEIGHT / 3;
+        float buttonX = (1280 - buttonWidth) / 2; // Use window width
+        float buttonY = 720 / 3; // Use window height
         this.playButton = new Rectangle(buttonX, buttonY, buttonWidth, buttonHeight);
     }
     
@@ -82,15 +83,15 @@ public class MainMenuScreen implements Screen {
         // Draw title "ChainedClimber 2D"
         String titleText = "ChainedClimber 2D";
         layout.setText(titleFont, titleText);
-        float titleX = (Constants.WORLD_WIDTH - layout.width) / 2;
-        float titleY = Constants.WORLD_HEIGHT * 0.7f;
+        float titleX = (1280 - layout.width) / 2; // Use window width
+        float titleY = 720 * 0.7f; // Use window height
         titleFont.draw(batch, titleText, titleX, titleY);
         
         // Draw subtitle
         String subtitleText = "Climb Together!";
         layout.setText(subtitleFont, subtitleText);
-        float subtitleX = (Constants.WORLD_WIDTH - layout.width) / 2;
-        float subtitleY = Constants.WORLD_HEIGHT * 0.65f;
+        float subtitleX = (1280 - layout.width) / 2; // Use window width
+        float subtitleY = 720 * 0.65f; // Use window height
         subtitleFont.draw(batch, subtitleText, subtitleX, subtitleY);
         
         // Draw "PLAY" text on button
@@ -107,9 +108,9 @@ public class MainMenuScreen implements Screen {
             float touchX = Gdx.input.getX();
             float touchY = Gdx.graphics.getHeight() - Gdx.input.getY(); // Flip Y
             
-            // Convert to world coordinates
-            touchX = touchX * Constants.WORLD_WIDTH / Gdx.graphics.getWidth();
-            touchY = touchY * Constants.WORLD_HEIGHT / Gdx.graphics.getHeight();
+            // Convert to screen coordinates
+            touchX = touchX * 1280 / Gdx.graphics.getWidth(); // Use window width
+            touchY = touchY * 720 / Gdx.graphics.getHeight(); // Use window height
             
             if (playButton.contains(touchX, touchY)) {
                 // Start game

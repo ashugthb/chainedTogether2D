@@ -36,9 +36,11 @@ public class LevelMatrix {
         this.gridRows = gridRows;
         this.gridColumns = gridColumns;
         
-        // Calculate cell dimensions based on world size
-        this.cellWidth = (float) Constants.WORLD_WIDTH / gridColumns;
-        this.cellHeight = (float) Constants.WORLD_HEIGHT / gridRows;
+        // Use FIXED cell dimensions (80x80 square blocks)
+        // This way the map size adapts to the grid, not vice versa
+        // World size will be: columns × 80 wide, rows × 80 tall
+        this.cellWidth = 80f;  // Fixed cell width
+        this.cellHeight = 80f; // Fixed cell height
         
         // Initialize empty matrix
         this.matrix = new int[gridRows][gridColumns];
@@ -128,7 +130,9 @@ public class LevelMatrix {
     public float[] gridToWorld(int row, int col) {
         float worldX = col * cellWidth;
         // Flip Y: row 0 is at top, but world Y increases upward
-        float worldY = Constants.WORLD_HEIGHT - ((row + 1) * cellHeight);
+        // Use actual world height (gridRows × cellHeight) instead of Constants
+        float actualWorldHeight = gridRows * cellHeight;
+        float worldY = actualWorldHeight - ((row + 1) * cellHeight);
         
         return new float[] { worldX, worldY };
     }

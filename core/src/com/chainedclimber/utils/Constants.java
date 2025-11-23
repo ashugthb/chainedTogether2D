@@ -1,10 +1,10 @@
 package com.chainedclimber.utils;
 
 public class Constants {
-    // Screen/World dimensions (16:9 aspect ratio - works on both mobile and desktop)
-    // Optimized for laptop display while maintaining mobile-friendly proportions
-    public static final int WORLD_WIDTH = 1280;
-    public static final int WORLD_HEIGHT = 720;
+    // Screen/World dimensions - Reduced for smaller visible area
+    // Tighter camera focus on player for vertical climbing
+    public static final int WORLD_WIDTH = 640;
+    public static final int WORLD_HEIGHT = 480;
     
     // Physics constants
     public static final float GRAVITY = 1200f;  // Pixels per second squared

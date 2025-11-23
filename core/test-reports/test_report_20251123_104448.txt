@@ -1,0 +1,59 @@
+================================================================================
+TEST EXECUTION REPORT
+Generated: 2025-11-23 10:44:48.088
+================================================================================
+
+SUMMARY:
+  Total Tests: 10
+  Passed: 10 (100%)
+  Failed: 0
+  Aborted: 0
+
+================================================================================
+DETAILED RESULTS:
+================================================================================
+
+[PASSED] SmokeTests.System Initialization - LibGDX Context (1763874888056ms)
+  Timestamp: 2025-11-23 10:44:48.057
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Constants Loading - Game Configuration (1763874888060ms)
+  Timestamp: 2025-11-23 10:44:48.060
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Player Entity Creation - Core Gameplay (1763874888062ms)
+  Timestamp: 2025-11-23 10:44:48.062
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Platform Entity Creation - Level Structure (1763874888064ms)
+  Timestamp: 2025-11-23 10:44:48.064
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Level Matrix Generation - Level System (1763874888069ms)
+  Timestamp: 2025-11-23 10:44:48.069
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Spatial Hash System - Performance Optimization (1763874888073ms)
+  Timestamp: 2025-11-23 10:44:48.073
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Physics Constants - Movement System (1763874888075ms)
+  Timestamp: 2025-11-23 10:44:48.075
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Block Type System - Level Elements (1763874888077ms)
+  Timestamp: 2025-11-23 10:44:48.077
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Moving Platform Creation - Dynamic Elements (1763874888079ms)
+  Timestamp: 2025-11-23 10:44:48.079
+--------------------------------------------------------------------------------
+[PASSED] SmokeTests.Render Culler System - Rendering Optimization (1763874888081ms)
+  Timestamp: 2025-11-23 10:44:48.081
+--------------------------------------------------------------------------------
+
+================================================================================
+PERFORMANCE ANALYSIS:
+================================================================================
+  1763874888081ms - SmokeTests.Render Culler System - Rendering Optimization
+  1763874888079ms - SmokeTests.Moving Platform Creation - Dynamic Elements
+  1763874888077ms - SmokeTests.Block Type System - Level Elements
+  1763874888075ms - SmokeTests.Physics Constants - Movement System
+  1763874888073ms - SmokeTests.Spatial Hash System - Performance Optimization
+  1763874888069ms - SmokeTests.Level Matrix Generation - Level System
+  1763874888064ms - SmokeTests.Platform Entity Creation - Level Structure
+  1763874888062ms - SmokeTests.Player Entity Creation - Core Gameplay
+  1763874888060ms - SmokeTests.Constants Loading - Game Configuration
+  1763874888056ms - SmokeTests.System Initialization - LibGDX Context

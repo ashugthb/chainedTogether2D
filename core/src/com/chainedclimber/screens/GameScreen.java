@@ -9,9 +9,10 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
-import com.badlogic.gdx.utils.viewport.FitViewport;
+import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.chainedclimber.ChainedClimberGame;
+import com.chainedclimber.debug.DebugMode;
 import com.chainedclimber.entities.BouncyBlock;
 import com.chainedclimber.entities.BreakableBlock;
 import com.chainedclimber.entities.Checkpoint;
@@ -57,27 +58,63 @@ public class GameScreen implements Screen {
     // Frame timing for delta smoothing
     private float accumulatedDelta = 0f;
     private static final float FIXED_TIME_STEP = 1/60f; // 60 FPS physics
-    private static final int MAX_PHYSICS_STEPS = 5; // Prevent spiral of death
+    private static final int MAX_PHYSICS_STEPS = 8; // Allow more catch-up on mobile devices
+
+    // Render interpolation alpha (0..1)
+    private float renderInterpolationAlpha = 0f;
+
+    // Lightweight profiling
+    private float physicsTimeAvgMs = 0f;
+    private int profileFrameCounter = 0;
+    private int lastPhysicsSteps = 0;
     
     // Render counters for debugging
     private int renderedEntities = 0;
     private int totalEntities = 0;
     
+    // Collision counters
+    private int platformCollisionCount = 0;
+    private int spikeCollisionCount = 0;
+    private int movingPlatformCollisionCount = 0;
+    private int totalCollisionChecks = 0;
+    private int spatialHashQueryCount = 0;
+    
     // Moving platform tracking - stores the platform player is currently standing on
     private MovingPlatform currentMovingPlatform = null;
+    
+    private LevelMatrix currentLevelMatrix;
+    
+    // World dimensions (actual map size calculated from level matrix)
+    private float worldWidth;
+    private float worldHeight;
+    
+    // Camera viewport dimensions - DYNAMIC (adapts to window size)
+    // Minimum viewport ensures readable game on small screens
+    // ExtendViewport will show MORE content on larger screens
+    private static final float MIN_VIEWPORT_WIDTH = 800f;   // Minimum ~10 blocks horizontally
+    private static final float MIN_VIEWPORT_HEIGHT = 600f;  // Minimum ~7.5 blocks vertically
+    private static final float MAX_VIEWPORT_WIDTH = 2400f;  // Maximum for ultra-wide screens
+    private static final float MAX_VIEWPORT_HEIGHT = 1800f; // Maximum for tall screens
     
     public GameScreen(ChainedClimberGame game) {
         this.game = game;
         
-        // Setup camera and viewport
+        // Setup camera with DYNAMIC viewport that adapts to window size
+        // ExtendViewport: maintains aspect ratio, shows MORE content on larger screens
+        // NO BLACK BARS - always fills entire window
         camera = new OrthographicCamera();
-        viewport = new FitViewport(Constants.WORLD_WIDTH, Constants.WORLD_HEIGHT, camera);
-        camera.position.set(Constants.WORLD_WIDTH / 2, Constants.WORLD_HEIGHT / 2, 0);
+        viewport = new ExtendViewport(MIN_VIEWPORT_WIDTH, MIN_VIEWPORT_HEIGHT, 
+                                      MAX_VIEWPORT_WIDTH, MAX_VIEWPORT_HEIGHT, camera);
+        camera.position.set(MIN_VIEWPORT_WIDTH / 2, MIN_VIEWPORT_HEIGHT / 2, 0);
         camera.update();
         
         shapeRenderer = new ShapeRenderer();
         shapeRenderer.setAutoShapeType(true); // Optimization: auto-switch shape types
-        spriteBatch = new SpriteBatch();
+        
+        // OPTIMIZATION: Larger SpriteBatch for better performance with many textures
+        // Default size is 1000, we use 8000 for large maps to reduce flush() calls
+        spriteBatch = new SpriteBatch(8000);
+        
         inputController = new InputController();
         
         // Initialize texture manager and preload textures
@@ -85,15 +122,27 @@ public class GameScreen implements Screen {
         
         // Initialize performance systems
         renderCuller = new RenderCuller();
-        platformSpatialHash = new SpatialHash<>(Constants.WORLD_WIDTH / 8f); // 8x8 grid
-        spikeSpatialHash = new SpatialHash<>(Constants.WORLD_WIDTH / 8f);
         
-        // Generate level from matrix - USE LEVEL 2 with moving platforms!
-        LevelMatrix levelMatrix = LevelGenerator.createLevel2(); // Level 2: All block types showcase
-        levelMatrix.printMatrix(); // Debug output
-        levelData = LevelGenerator.generateAllEntities(levelMatrix);
+        // Generate level from matrix - USE LEVEL 3 with simple moving platform test!
+        currentLevelMatrix = LevelGenerator.createLevel3(); // Level 3: Simple test level with one moving platform
+        currentLevelMatrix.printMatrix(); // Debug output
+        levelData = LevelGenerator.generateAllEntities(currentLevelMatrix);
         
-        // Build spatial hashes for ultra-fast collision detection
+        // Calculate actual world dimensions from level matrix
+        // World size = number of cells × cell dimensions
+        worldWidth = currentLevelMatrix.getColumns() * currentLevelMatrix.getCellWidth();
+        worldHeight = currentLevelMatrix.getRows() * currentLevelMatrix.getCellHeight();
+        
+        System.out.println("World dimensions: " + worldWidth + "x" + worldHeight);
+        System.out.println("Viewport range: " + MIN_VIEWPORT_WIDTH + "-" + MAX_VIEWPORT_WIDTH + 
+                          " x " + MIN_VIEWPORT_HEIGHT + "-" + MAX_VIEWPORT_HEIGHT);
+        System.out.println("Initial window: " + Gdx.graphics.getWidth() + "x" + Gdx.graphics.getHeight());
+        
+        // Initialize spatial hashes for ultra-fast collision detection (use world dimensions)
+        platformSpatialHash = new SpatialHash<>(worldWidth / 8f); // 8x8 grid based on actual world
+        spikeSpatialHash = new SpatialHash<>(worldWidth / 8f);
+        
+        // Build spatial hashes with actual entities
         buildSpatialHashes();
         
         // Count total entities for performance metrics
@@ -102,8 +151,16 @@ public class GameScreen implements Screen {
                        levelData.movingPlatforms.size() + levelData.breakableBlocks.size() +
                        levelData.checkpoints.size() + levelData.goals.size() + levelData.ramps.size();
         
+        // Display optimization stats
+        System.out.println("=== OPTIMIZATION METRICS ===");
+        System.out.println("Total entities after merging: " + totalEntities);
+        System.out.println("Platforms (merged): " + levelData.platforms.size());
+        System.out.println("Map cells: " + (currentLevelMatrix.getRows() * currentLevelMatrix.getColumns()));
+        System.out.println("Optimization ratio: " + 
+            String.format("%.1f%%", (1.0 - (double)totalEntities / (currentLevelMatrix.getRows() * currentLevelMatrix.getColumns())) * 100));
+        
         // Find spawn point in matrix (marked with @/SPAWN_POINT)
-        Vector2 spawnPoint = findSpawnPointInMatrix(levelMatrix);
+        Vector2 spawnPoint = findSpawnPointInMatrix(currentLevelMatrix);
         player = new Player(spawnPoint.x, spawnPoint.y);
         lastCheckpoint = new Vector2(spawnPoint.x, spawnPoint.y);
     }
@@ -159,6 +216,16 @@ public class GameScreen implements Screen {
     
     @Override
     public void render(float delta) {
+        // Handle debug mode controls
+        handleDebugControls();
+        
+        // Check if we should pause for step mode
+        if (DebugMode.shouldPause()) {
+            renderFrame(); // Still render, just don't update
+            DebugMode.renderOverlay(spriteBatch);
+            return;
+        }
+        
         if (levelComplete) {
             levelCompleteTimer += delta;
             renderVictoryScreen();
@@ -169,15 +236,50 @@ public class GameScreen implements Screen {
         }
         
         // Fixed timestep physics for consistent simulation across devices
-        accumulatedDelta += Math.min(delta, 0.25f); // Cap delta to prevent death spiral
-        
+        // Cap delta to 0.1s (6 frames at 60fps) to prevent huge spikes on slow devices
+        accumulatedDelta += Math.min(delta, 0.1f);
+
+        // Reset collision counters for this frame
+        platformCollisionCount = 0;
+        spikeCollisionCount = 0;
+        movingPlatformCollisionCount = 0;
+        totalCollisionChecks = 0;
+        spatialHashQueryCount = 0;
+
         int physicsSteps = 0;
+        long physicsStart = System.nanoTime();
+        
+        // Run physics loop with CORRECT interpolation state management
         while (accumulatedDelta >= FIXED_TIME_STEP && physicsSteps < MAX_PHYSICS_STEPS) {
             updatePhysics(FIXED_TIME_STEP);
             accumulatedDelta -= FIXED_TIME_STEP;
             physicsSteps++;
+            
+            // CRITICAL: Save state AFTER physics step completes
+            // This is the state we'll interpolate FROM (not TO)
+            if (physicsSteps == 1 || accumulatedDelta < FIXED_TIME_STEP) {
+                player.savePreviousPosition();
+                for (MovingPlatform mp : levelData.movingPlatforms) {
+                    mp.savePreviousState();
+                }
+            }
         }
+        long physicsElapsedNanos = System.nanoTime() - physicsStart;
+
+        // Update profiling averages
+        float physicsMs = physicsElapsedNanos / 1_000_000f;
+        physicsTimeAvgMs = physicsTimeAvgMs * 0.9f + physicsMs * 0.1f;
+        lastPhysicsSteps = physicsSteps;
         
+        profileFrameCounter++;
+        if (profileFrameCounter % 60 == 0) {
+            Gdx.app.log("Perf", String.format("Physics steps/frame: %d, avg ms: %.3f", physicsSteps, physicsTimeAvgMs));
+        }
+
+        // Compute interpolation alpha for rendering
+        // Alpha represents how far between the last physics step and the next one we are
+        renderInterpolationAlpha = (physicsSteps > 0) ? (accumulatedDelta / FIXED_TIME_STEP) : 0f;
+
         // Update rendering
         renderFrame();
     }
@@ -222,20 +324,25 @@ public class GameScreen implements Screen {
             
             // Determine if player is standing on the platform:
             // 1. Player must horizontally overlap with platform
-            // 2. Player's feet must be within 2 pixels of platform top (allows edge-touching)
-            // 3. Player must not be jumping upward
+            // 2. Player's feet must be within 3 pixels of platform top (increased tolerance)
+            // 3. Player must not be jumping upward (velocity.y <= 0) OR just barely leaving (velocity.y < 100)
+            //    This prevents the player from "sticking" when trying to jump off
             boolean standingOnPlatform = horizontalOverlap && 
-                                        (verticalDistance <= 2) && 
-                                        (player.getVelocity().y <= 0);
+                                        (verticalDistance <= 3) && 
+                                        (player.getVelocity().y <= 100);
             
             if (standingOnPlatform) {
                 ridingPlatform = mp;
-                player.setGrounded(true);
                 
-                // Apply platform's movement delta to player position
-                player.getPosition().x += mp.getLastDeltaX();
-                player.getPosition().y += mp.getLastDeltaY();
-                player.getBounds().setPosition(player.getPosition().x, player.getPosition().y);
+                // Only set grounded and apply movement if player is actually on top (not jumping off)
+                if (player.getVelocity().y <= 0) {
+                    player.setGrounded(true);
+                    
+                    // Apply platform's movement delta to player position
+                    player.getPosition().x += mp.getLastDeltaX();
+                    player.getPosition().y += mp.getLastDeltaY();
+                    player.getBounds().setPosition(player.getPosition().x, player.getPosition().y);
+                }
                 
                 break;
             }
@@ -255,9 +362,10 @@ public class GameScreen implements Screen {
         if (inputController.isJumpJustPressed()) {
             player.jump();
         }
+        // Jump is auto-consumed by input controller on next update()
         
         // STEP 4: Update player physics (normal movement)
-        player.update(delta);
+        player.update(delta, worldWidth);
         
         // Update breakable blocks
         for (BreakableBlock bb : levelData.breakableBlocks) {
@@ -280,9 +388,14 @@ public class GameScreen implements Screen {
         Array<Platform> nearbyPlatforms = platformSpatialHash.query(playerBounds);
         Array<Spike> nearbySpikes = spikeSpatialHash.query(playerBounds);
         
+        // Track spatial hash queries
+        spatialHashQueryCount += 2; // One for platforms, one for spikes
+        
         // Check collisions only with nearby platforms
         for (Platform platform : nearbyPlatforms) {
             player.checkCollision(platform);
+            platformCollisionCount++;
+            totalCollisionChecks++;
         }
         
         // Check collisions with bouncy blocks
@@ -326,6 +439,8 @@ public class GameScreen implements Screen {
                 Platform solidPlatform = new Platform(mpBounds.x, mpBounds.y, 
                                                      mpBounds.width, mpBounds.height, false);
                 player.checkCollision(solidPlatform);
+                movingPlatformCollisionCount++;
+                totalCollisionChecks++;
             }
         }
         
@@ -355,6 +470,8 @@ public class GameScreen implements Screen {
         
         // Check collisions only with nearby spikes
         for (Spike spike : nearbySpikes) {
+            spikeCollisionCount++;
+            totalCollisionChecks++;
             if (spike.checkCollision(playerBounds)) {
                 // Player hit spike - respawn at last checkpoint
                 player.resetPosition(lastCheckpoint);
@@ -382,27 +499,57 @@ public class GameScreen implements Screen {
      * Optimized rendering with frustum culling
      */
     private void renderFrame() {
-        // Update camera to follow player
-        float targetCameraX = player.getPosition().x + Constants.PLAYER_WIDTH / 2;
-        float targetCameraY = player.getPosition().y + Constants.PLAYER_HEIGHT / 2;
+        // ========================================
+        // CAMERA SYSTEM - Works for ANY map size
+        // ========================================
         
-        // Clamp camera X position to keep it within world bounds
-        if (targetCameraX < Constants.WORLD_WIDTH / 2) {
-            camera.position.x = Constants.WORLD_WIDTH / 2;
-        } else if (targetCameraX > Constants.WORLD_WIDTH - Constants.WORLD_WIDTH / 2) {
-            camera.position.x = Constants.WORLD_WIDTH / 2;
+        // 1. Calculate player center position in world coordinates
+        float playerCenterX = player.getPosition().x + Constants.PLAYER_WIDTH / 2;
+        float playerCenterY = player.getPosition().y + Constants.PLAYER_HEIGHT / 2;
+        
+        // 2. Get ACTUAL viewport dimensions (changes with window resize)
+        float viewportWidth = camera.viewportWidth;
+        float viewportHeight = camera.viewportHeight;
+        float halfViewportWidth = viewportWidth / 2;
+        float halfViewportHeight = viewportHeight / 2;
+        
+        // 3. Calculate desired camera position (centered on player)
+        float desiredCameraX = playerCenterX;
+        float desiredCameraY = playerCenterY;
+        
+        // 4. Clamp camera to world boundaries
+        // Camera cannot show area outside the world (0, 0) to (worldWidth, worldHeight)
+        
+        // X-axis clamping
+        float minCameraX = halfViewportWidth; // Left edge
+        float maxCameraX = worldWidth - halfViewportWidth; // Right edge
+        
+        if (worldWidth <= viewportWidth) {
+            // World is narrower than viewport - center on world
+            camera.position.x = worldWidth / 2;
         } else {
-            camera.position.x = targetCameraX;
+            // Normal case - clamp camera to world bounds
+            camera.position.x = Math.max(minCameraX, Math.min(maxCameraX, desiredCameraX));
         }
         
-        // Clamp camera Y position
-        if (targetCameraY > Constants.WORLD_HEIGHT / 2) {
-            camera.position.y = targetCameraY;
+        // Y-axis clamping
+        float minCameraY = halfViewportHeight; // Bottom edge
+        float maxCameraY = worldHeight - halfViewportHeight; // Top edge
+        
+        if (worldHeight <= viewportHeight) {
+            // World is shorter than viewport - center on world
+            camera.position.y = worldHeight / 2;
         } else {
-            camera.position.y = Constants.WORLD_HEIGHT / 2;
+            // Normal case - clamp camera to world bounds
+            camera.position.y = Math.max(minCameraY, Math.min(maxCameraY, desiredCameraY));
         }
         
+        // 5. Update camera matrices
         camera.update();
+        
+        // CRITICAL: Apply viewport to OpenGL - this sets glViewport() to use full window
+        // WITHOUT this, OpenGL uses default viewport causing black bars!
+        viewport.apply();
         
         // Update frustum culler
         renderCuller.update(camera);
@@ -447,7 +594,7 @@ public class GameScreen implements Screen {
         }
         for (MovingPlatform mp : levelData.movingPlatforms) {
             if (renderCuller.isVisible(mp.getBounds())) {
-                mp.render(shapeRenderer);
+                mp.renderInterpolated(shapeRenderer, renderInterpolationAlpha);
                 renderedEntities++;
             }
         }
@@ -510,9 +657,9 @@ public class GameScreen implements Screen {
             }
         }
         
-        // Render player sprite (bigger now!)
+        // Render player sprite (bigger now!) with interpolation
         player.updateDirection(Gdx.graphics.getDeltaTime());
-        player.renderSprite(spriteBatch);
+        player.renderSpriteInterpolated(spriteBatch, renderInterpolationAlpha);
         
         spriteBatch.end();
         
@@ -542,7 +689,7 @@ public class GameScreen implements Screen {
         }
         for (MovingPlatform mp : levelData.movingPlatforms) {
             if (renderCuller.isVisible(mp.getBounds())) {
-                mp.renderBorder(shapeRenderer);
+                mp.renderBorderInterpolated(shapeRenderer, renderInterpolationAlpha);
             }
         }
         for (Ramp ramp : levelData.ramps) {
@@ -573,49 +720,84 @@ public class GameScreen implements Screen {
     }
     
     private void renderUI() {
-        // Set up orthographic projection for UI (no camera movement)
-        shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        // BULLETPROOF UI RENDERING with guaranteed matching touch areas
+        // The TouchButtonManager handles all coordinate conversion automatically!
+        int screenWidth = Gdx.graphics.getWidth();
+        int screenHeight = Gdx.graphics.getHeight();
         
-        // Draw control buttons with semi-transparent gray
+        spriteBatch.getProjectionMatrix().setToOrtho2D(0, 0, screenWidth, screenHeight);
+        shapeRenderer.setProjectionMatrix(spriteBatch.getProjectionMatrix());
         
-        // LEFT button - bottom-left corner
-        float leftCenterX = inputController.getLeftButtonPos().x + Constants.BUTTON_SIZE / 2;
-        float leftCenterY = inputController.getLeftButtonPos().y + Constants.BUTTON_SIZE / 2;
-        shapeRenderer.setColor(0.3f, 0.3f, 0.3f, 0.6f);
-        shapeRenderer.circle(leftCenterX, leftCenterY, Constants.BUTTON_SIZE / 2);
+        // Render buttons using the manager - touch areas and visuals GUARANTEED to match
+        inputController.getTouchButtonManager().render(shapeRenderer);
         
-        // RIGHT button - next to left button
-        float rightCenterX = inputController.getRightButtonPos().x + Constants.BUTTON_SIZE / 2;
-        float rightCenterY = inputController.getRightButtonPos().y + Constants.BUTTON_SIZE / 2;
-        shapeRenderer.setColor(0.3f, 0.3f, 0.3f, 0.6f);
-        shapeRenderer.circle(rightCenterX, rightCenterY, Constants.BUTTON_SIZE / 2);
+        // Render button icons/arrows
+        inputController.getTouchButtonManager().renderIcons(shapeRenderer, 
+            (renderer, button, x, y) -> {
+                renderer.setColor(1f, 1f, 1f, 0.9f); // White arrows
+                float size = button.getRadius() * 0.5f;
+                
+                switch (button.getId()) {
+                    case "left":
+                        drawLeftArrow(x, y, size);
+                        break;
+                    case "right":
+                        drawRightArrow(x, y, size);
+                        break;
+                    case "jump":
+                        drawUpArrow(x, y, size);
+                        break;
+                }
+            }
+        );
+    }
+    
+    /**
+     * Draw left arrow icon (◄)
+     */
+    private void drawLeftArrow(float centerX, float centerY, float size) {
+        shapeRenderer.setColor(1f, 1f, 1f, 0.9f); // White arrow
         
-        // JUMP button - top-right corner
-        float jumpCenterX = inputController.getJumpButtonPos().x + Constants.BUTTON_SIZE / 2;
-        float jumpCenterY = inputController.getJumpButtonPos().y + Constants.BUTTON_SIZE / 2;
-        shapeRenderer.setColor(0.2f, 0.7f, 0.2f, 0.6f); // Green tint for jump
-        shapeRenderer.circle(jumpCenterX, jumpCenterY, Constants.BUTTON_SIZE / 2);
+        // Arrow pointing left (triangle)
+        float tipX = centerX - size;
+        float tipY = centerY;
+        float baseX = centerX + size * 0.5f;
+        float topY = centerY + size;
+        float bottomY = centerY - size;
         
-        shapeRenderer.end();
+        shapeRenderer.triangle(tipX, tipY, baseX, topY, baseX, bottomY);
+    }
+    
+    /**
+     * Draw right arrow icon (►)
+     */
+    private void drawRightArrow(float centerX, float centerY, float size) {
+        shapeRenderer.setColor(1f, 1f, 1f, 0.9f); // White arrow
         
-        // Draw button borders for better visibility
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-        Gdx.gl.glLineWidth(3);
+        // Arrow pointing right (triangle)
+        float tipX = centerX + size;
+        float tipY = centerY;
+        float baseX = centerX - size * 0.5f;
+        float topY = centerY + size;
+        float bottomY = centerY - size;
         
-        // Left button border
-        shapeRenderer.setColor(0.5f, 0.5f, 0.5f, 0.9f);
-        shapeRenderer.circle(leftCenterX, leftCenterY, Constants.BUTTON_SIZE / 2);
+        shapeRenderer.triangle(tipX, tipY, baseX, topY, baseX, bottomY);
+    }
+    
+    /**
+     * Draw up arrow icon (▲)
+     */
+    private void drawUpArrow(float centerX, float centerY, float size) {
+        shapeRenderer.setColor(1f, 1f, 1f, 0.95f); // Bright white arrow
         
-        // Right button border
-        shapeRenderer.setColor(0.5f, 0.5f, 0.5f, 0.9f);
-        shapeRenderer.circle(rightCenterX, rightCenterY, Constants.BUTTON_SIZE / 2);
+        // Arrow pointing up (triangle)
+        float tipX = centerX;
+        float tipY = centerY + size;
+        float leftX = centerX - size;
+        float rightX = centerX + size;
+        float baseY = centerY - size * 0.5f;
         
-        // Jump button border
-        shapeRenderer.setColor(0.3f, 0.9f, 0.3f, 0.9f); // Bright green border
-        shapeRenderer.circle(jumpCenterX, jumpCenterY, Constants.BUTTON_SIZE / 2);
-        
-        shapeRenderer.end();
+        shapeRenderer.triangle(tipX, tipY, leftX, baseY, rightX, baseY);
     }
     
     /**
@@ -815,7 +997,18 @@ public class GameScreen implements Screen {
     
     @Override
     public void resize(int width, int height) {
-        viewport.update(width, height);
+        // Update viewport - ExtendViewport automatically scales to fill window without black bars
+        viewport.update(width, height, true); // true = center camera
+        
+        // Update touch button positions for new screen size
+        inputController.resize(width, height);
+        
+        // Debug output
+        System.out.println("Window resized to: " + width + "x" + height);
+        System.out.println("Viewport adjusted to: " + camera.viewportWidth + "x" + camera.viewportHeight);
+        System.out.println("World coverage: " + 
+            (camera.viewportWidth / worldWidth * 100) + "% width, " +
+            (camera.viewportHeight / worldHeight * 100) + "% height");
     }
     
     @Override
@@ -830,11 +1023,44 @@ public class GameScreen implements Screen {
     public void hide() {
     }
     
+    /**
+     * Handle debug mode keyboard controls
+     */
+    private void handleDebugControls() {
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.F3)) {
+            DebugMode.setEnabled(!DebugMode.isEnabled());
+        }
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.F4)) {
+            DebugMode.toggleStepMode();
+        }
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.F5)) {
+            DebugMode.stepFrame();
+        }
+        
+        // Log debug info when enabled
+        if (DebugMode.isEnabled()) {
+            DebugMode.log("Player", "Position", player.getPosition());
+            DebugMode.log("Player", "Velocity", player.getVelocity());
+            DebugMode.log("Player", "Grounded", player.isGrounded());
+            DebugMode.log("Performance", "FPS", Gdx.graphics.getFramesPerSecond());
+            DebugMode.log("Performance", "Physics ms", String.format("%.3f", physicsTimeAvgMs));
+            DebugMode.log("Collisions", "Platform", platformCollisionCount);
+            DebugMode.log("Collisions", "Spike", spikeCollisionCount);
+        }
+    }
+    
     @Override
     public void dispose() {
-        shapeRenderer.dispose();
-        spriteBatch.dispose();
-        player.dispose();
+        if (shapeRenderer != null) {
+            shapeRenderer.dispose();
+        }
+        if (spriteBatch != null) {
+            spriteBatch.dispose();
+        }
+        if (player != null) {
+            player.dispose();
+        }
+        DebugMode.dispose();
         TextureManager.getInstance().dispose();
     }
 }

@@ -11,6 +11,7 @@ import com.chainedclimber.utils.LevelData;
  */
 public class MovingPlatform {
     private Rectangle bounds;
+    private Rectangle previousBounds; // For render interpolation
     private float[] color;
     private float startX;
     private float endX;
@@ -28,6 +29,7 @@ public class MovingPlatform {
     
     public MovingPlatform(float x, float y, float width, float height) {
         this.bounds = new Rectangle(x, y, width, height);
+        this.previousBounds = new Rectangle(x, y, width, height);
         this.color = BlockType.getColor(BlockType.MOVING_PLATFORM);
         this.startX = x;
         this.endX = x + travelDistance;
@@ -196,5 +198,27 @@ public class MovingPlatform {
         float overlapTop = (bounds.y + bounds.height) - playerBounds.y;
         
         return playerBounds.overlaps(bounds) && overlapTop > overlapBottom && overlapBottom < 10;
+    }
+    
+    public void savePreviousState() {
+        previousBounds.set(bounds);
+    }
+    
+    public void renderInterpolated(ShapeRenderer shapeRenderer, float alpha) {
+        // Interpolate between previous and current bounds
+        float interpX = previousBounds.x * (1f - alpha) + bounds.x * alpha;
+        float interpY = previousBounds.y * (1f - alpha) + bounds.y * alpha;
+        
+        shapeRenderer.setColor(color[0], color[1], color[2], 1);
+        shapeRenderer.rect(interpX, interpY, bounds.width, bounds.height);
+    }
+    
+    public void renderBorderInterpolated(ShapeRenderer shapeRenderer, float alpha) {
+        // Interpolate between previous and current bounds
+        float interpX = previousBounds.x * (1f - alpha) + bounds.x * alpha;
+        float interpY = previousBounds.y * (1f - alpha) + bounds.y * alpha;
+        
+        shapeRenderer.setColor(0.6f, 0.4f, 0, 1); // Dark orange border
+        shapeRenderer.rect(interpX, interpY, bounds.width, bounds.height);
     }
 }
