@@ -53,19 +53,26 @@ public class LevelGenerator {
                 float y = worldPos[1];
                 boolean isGround = (row == rows - 1);
                 
-                // OPTIMIZED PLATFORM MERGING
-                if (blockType == BlockType.PLATFORM && !processedPlatforms[row][col]) {
-                    // Find how many consecutive platforms we can merge
+                // OPTIMIZED PLATFORM MERGING (Static and Moving)
+                if ((blockType == BlockType.PLATFORM || blockType == BlockType.MOVING_PLATFORM) && !processedPlatforms[row][col]) {
+                    // Find how many consecutive platforms of the SAME TYPE we can merge
                     int mergeCount = 1;
                     while (col + mergeCount < cols && 
-                           matrix.getCell(row, col + mergeCount) == BlockType.PLATFORM &&
+                           matrix.getCell(row, col + mergeCount) == blockType &&
                            !processedPlatforms[row][col + mergeCount]) {
                         mergeCount++;
                     }
                     
                     // Create ONE merged platform instead of many small ones
                     float mergedWidth = mergeCount * cellWidth;
-                    levelData.platforms.add(new Platform(x, y, mergedWidth, cellHeight, isGround));
+                    
+                    if (blockType == BlockType.PLATFORM) {
+                        levelData.platforms.add(new Platform(x, y, mergedWidth, cellHeight, isGround));
+                    } else {
+                        // MOVING_PLATFORM
+                        MovingPlatform mp = new MovingPlatform(x, y, mergedWidth, cellHeight);
+                        levelData.movingPlatforms.add(mp);
+                    }
                     
                     // Mark these cells as processed
                     for (int i = 0; i < mergeCount; i++) {
@@ -86,10 +93,6 @@ public class LevelGenerator {
                         break;
                     case BlockType.ICE:
                         levelData.iceBlocks.add(new IceBlock(x, y, cellWidth, cellHeight));
-                        break;
-                    case BlockType.MOVING_PLATFORM:
-                        MovingPlatform mp = new MovingPlatform(x, y, cellWidth, cellHeight);
-                        levelData.movingPlatforms.add(mp);
                         break;
                     case BlockType.BREAKABLE:
                         levelData.breakableBlocks.add(new BreakableBlock(x, y, cellWidth, cellHeight));
@@ -133,8 +136,24 @@ public class LevelGenerator {
             }
             
             MovingPlatform platform = levelData.movingPlatforms.get(platformIndex);
-            float travelDistance = config.getTravelDistance(cellWidth);
-            platform.setTravelDistance(travelDistance);
+            
+            // Calculate world coordinates for start and end columns
+            float x1 = config.startCol * cellWidth;
+            float x2 = config.endCol * cellWidth;
+            
+            // Determine min and max bounds
+            float minX = Math.min(x1, x2);
+            float maxX = Math.max(x1, x2);
+            
+            // Set the path on the platform using the new robust system
+            // This automatically handles direction and waypoints
+            platform.setPath(minX, maxX);
+            
+            // Apply professional configuration
+            // Speed: 100px/s (default)
+            // Wait Time: 0.5s at each end (smooth feel)
+            // Easing: Sine Out (smooth deceleration)
+            platform.configure(config.speed, 0.5f, com.badlogic.gdx.math.Interpolation.sineOut);
             
             platformIndex++;
         }

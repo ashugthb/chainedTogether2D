@@ -16,6 +16,7 @@ public class Player {
     private boolean grounded;
     private Rectangle bounds;
     private float frictionMultiplier = 1.0f; // For ice blocks
+    private float momentumX = 0f; // Momentum from moving platforms
     
     // Graphics
     private Texture playerTexture;
@@ -49,10 +50,20 @@ public class Player {
             if (velocity.y < -Constants.MAX_FALL_SPEED) {
                 velocity.y = -Constants.MAX_FALL_SPEED;
             }
+            
+            // Apply air resistance to momentum
+            if (momentumX != 0) {
+                // Slow decay of momentum in air
+                momentumX *= 0.98f;
+                if (Math.abs(momentumX) < 10f) momentumX = 0;
+            }
+        } else {
+            // Grounded - reset momentum immediately (friction takes over)
+            momentumX = 0;
         }
         
-        // Update position
-        position.x += velocity.x * deltaTime;
+        // Update position with velocity AND momentum
+        position.x += (velocity.x + momentumX) * deltaTime;
         position.y += velocity.y * deltaTime;
         
         // Keep player within horizontal world bounds (use actual world width)
@@ -123,12 +134,15 @@ public class Player {
         velocity.x = 0;
     }
     
+    public void addMomentum(float x) {
+        this.momentumX = x;
+    }
+    
     public void jump() {
-        // Allow immediate jump when grounded - no delay
-        if (grounded) {
-            velocity.y = Constants.JUMP_VELOCITY;
-            grounded = false;
-        }
+        // Execute jump immediately
+        // Logic for "can I jump?" (grounded, coyote time, etc.) is handled by GameScreen/InputController
+        velocity.y = Constants.JUMP_VELOCITY;
+        grounded = false;
     }
     
     public void setGrounded(boolean grounded) {

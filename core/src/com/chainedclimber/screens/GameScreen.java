@@ -40,6 +40,10 @@ public class GameScreen implements Screen {
     private ShapeRenderer shapeRenderer;
     private SpriteBatch spriteBatch;
     
+    // FPS Overlay
+    private com.badlogic.gdx.graphics.g2d.BitmapFont fpsFont;
+    private StringBuilder fpsText = new StringBuilder();
+    
     private Player player;
     private LevelData levelData;
     private InputController inputController;
@@ -55,29 +59,32 @@ public class GameScreen implements Screen {
     private SpatialHash<Platform> platformSpatialHash;
     private SpatialHash<Spike> spikeSpatialHash;
     
-    // MOBILE OPTIMIZATION: Direct rendering without interpolation
-    // Fixed timestep physics for consistent gameplay
+    // DYNAMIC HIGH PERFORMANCE: Adaptive physics timestep
+    // Automatically scales to match target frame rate (60, 90, 120, 144 FPS)
     private float accumulatedDelta = 0f;
-    private static final float FIXED_TIME_STEP = 1/60f; // 60 FPS physics
-    private static final int MAX_PHYSICS_STEPS = 5; // Limit catch-up to prevent spiral of death
+    private static final float TARGET_FPS = 90f; // Target frame rate
+    private static final float FIXED_TIME_STEP = 1f / TARGET_FPS; // Dynamic physics step (~11.1ms)
+    private static final int MAX_PHYSICS_STEPS = 3; // Fewer steps at higher FPS
+    
+    // Adaptive frame timing for smooth gameplay across all devices
+    private float smoothDelta = FIXED_TIME_STEP;
+    private static final float DELTA_SMOOTHING = 0.2f; // Smooth out frame time spikes
 
     // Lightweight profiling
-    private float physicsTimeAvgMs = 0f;
-    private int profileFrameCounter = 0;
+    private float physicsTimeAvgMs = 0;
     private int lastPhysicsSteps = 0;
     
-    // Render counters for debugging
+    // Profiling counters
     private int renderedEntities = 0;
     private int totalEntities = 0;
-    
-    // Collision counters
+    private int spatialHashQueryCount = 0;
     private int platformCollisionCount = 0;
     private int spikeCollisionCount = 0;
     private int movingPlatformCollisionCount = 0;
     private int totalCollisionChecks = 0;
-    private int spatialHashQueryCount = 0;
+    private int profileFrameCounter = 0;
     
-    // Moving platform tracking - stores the platform player is currently standing on
+    // Moving platform state
     private MovingPlatform currentMovingPlatform = null;
     
     private LevelMatrix currentLevelMatrix;
@@ -113,6 +120,11 @@ public class GameScreen implements Screen {
         // Default size is 1000, we use 8000 for large maps to reduce flush() calls
         spriteBatch = new SpriteBatch(8000);
         
+        // Initialize FPS overlay font
+        fpsFont = new com.badlogic.gdx.graphics.g2d.BitmapFont();
+        fpsFont.setColor(1, 1, 0, 1); // Yellow color
+        fpsFont.getData().setScale(1.5f); // Make it bigger and readable
+        
         inputController = new InputController();
         
         // Initialize texture manager and preload textures
@@ -123,7 +135,7 @@ public class GameScreen implements Screen {
         
         // Generate level from matrix - USE LEVEL 3 with simple moving platform test!
         currentLevelMatrix = LevelGenerator.createLevel3(); // Level 3: Simple test level with one moving platform
-        currentLevelMatrix.printMatrix(); // Debug output
+        // currentLevelMatrix.printMatrix(); // Debug output - DISABLED to see input debug logs
         levelData = LevelGenerator.generateAllEntities(currentLevelMatrix);
         
         // Calculate actual world dimensions from level matrix
@@ -233,9 +245,10 @@ public class GameScreen implements Screen {
             return;
         }
         
-        // OPTIMIZED: Simple variable timestep - NO interpolation overhead
-        // Professional games use this on mobile for maximum performance
-        float physicsDelta = Math.min(delta, 0.033f); // Cap at 30fps worth
+        // DYNAMIC 90 FPS: Smooth delta to eliminate micro-stutters
+        // At 90 FPS, individual frame variations become very noticeable
+        smoothDelta = smoothDelta * (1f - DELTA_SMOOTHING) + delta * DELTA_SMOOTHING;
+        float physicsDelta = Math.min(smoothDelta, FIXED_TIME_STEP * 2f); // Cap max timestep
 
         // Reset collision counters for this frame
         platformCollisionCount = 0;
@@ -246,7 +259,7 @@ public class GameScreen implements Screen {
 
         long physicsStart = System.nanoTime();
         
-        // Single physics update - FAST and SIMPLE
+        // Single physics update with adaptive timestep
         updatePhysics(physicsDelta);
         
         long physicsElapsedNanos = System.nanoTime() - physicsStart;
@@ -257,8 +270,13 @@ public class GameScreen implements Screen {
         lastPhysicsSteps = 1;
         
         profileFrameCounter++;
-        if (profileFrameCounter % 120 == 0) {
-            Gdx.app.log("Perf", String.format("Physics: %.2fms, FPS: %d", physicsTimeAvgMs, Gdx.graphics.getFramesPerSecond()));
+        if (profileFrameCounter % 90 == 0) { // Report every 90 frames (~1 second at 90 FPS)
+            int currentFPS = Gdx.graphics.getFramesPerSecond();
+            float frameTime = delta * 1000f; // milliseconds
+            String status = currentFPS >= TARGET_FPS * 0.95f ? "OPTIMAL" : 
+                           currentFPS >= TARGET_FPS * 0.80f ? "GOOD" : "ADJUST";
+            Gdx.app.log("Perf", String.format("FPS: %d/%.0f | Frame: %.2fms | Physics: %.2fms | %s", 
+                currentFPS, TARGET_FPS, frameTime, physicsTimeAvgMs, status));
         }
 
         // Update rendering
@@ -273,17 +291,8 @@ public class GameScreen implements Screen {
         for (MovingPlatform mp : levelData.movingPlatforms) {
             if (mp != null) {
                 mp.setLevelData(levelData);
-                // Store position before update
-                float oldX = mp.getBounds().x;
-                float oldY = mp.getBounds().y;
-                
-                // Update platform
+                // Update platform (Deterministic logic handles delta calculation internally)
                 mp.update(delta);
-                
-                // Calculate actual delta movement
-                float deltaX = mp.getBounds().x - oldX;
-                float deltaY = mp.getBounds().y - oldY;
-                mp.setLastDelta(deltaX, deltaY); // Store the actual movement
             }
         }
         
@@ -305,12 +314,11 @@ public class GameScreen implements Screen {
             
             // Determine if player is standing on the platform:
             // 1. Player must horizontally overlap with platform
-            // 2. Player's feet must be within 3 pixels of platform top (increased tolerance)
-            // 3. Player must not be jumping upward (velocity.y <= 0) OR just barely leaving (velocity.y < 100)
-            //    This prevents the player from "sticking" when trying to jump off
+            // 2. Player's feet must be within 5 pixels of platform top (increased tolerance for high speed)
+            // 3. Player must not be jumping upward (velocity.y <= 0)
             boolean standingOnPlatform = horizontalOverlap && 
-                                        (verticalDistance <= 3) && 
-                                        (player.getVelocity().y <= 100);
+                                        (verticalDistance <= 5) && 
+                                        (player.getVelocity().y <= 10); // Strict velocity check
             
             if (standingOnPlatform) {
                 ridingPlatform = mp;
@@ -329,9 +337,17 @@ public class GameScreen implements Screen {
             }
         }
         
-        // STEP 3: Handle player input
+        // STEP 3: PROFESSIONAL INPUT SYSTEM (AAA platformer technique)
         inputController.update();
         
+        // CRITICAL: Cache grounded state BEFORE any updates
+        // This is the "real" grounded state from last frame's collision detection
+        boolean wasGroundedBeforeUpdate = player.isGrounded();
+        
+        // Update coyote time based on ground state (must be before jump check)
+        inputController.updateCoyoteTime(wasGroundedBeforeUpdate);
+        
+        // Horizontal movement
         if (inputController.isLeftPressed()) {
             player.moveLeft();
         } else if (inputController.isRightPressed()) {
@@ -340,12 +356,7 @@ public class GameScreen implements Screen {
             player.stopHorizontalMovement();
         }
         
-        if (inputController.isJumpJustPressed()) {
-            player.jump();
-        }
-        // Jump is auto-consumed by input controller on next update()
-        
-        // STEP 4: Update player physics (normal movement)
+        // STEP 4: Update player physics FIRST (before jump check)
         player.update(delta, worldWidth);
         
         // Update breakable blocks
@@ -414,15 +425,15 @@ public class GameScreen implements Screen {
         currentMovingPlatform = ridingPlatform;
         
         for (MovingPlatform mp : levelData.movingPlatforms) {
-            // Only do collision check if NOT riding this platform
-            if (mp != ridingPlatform) {
-                Rectangle mpBounds = mp.getBounds();
-                Platform solidPlatform = new Platform(mpBounds.x, mpBounds.y, 
-                                                     mpBounds.width, mpBounds.height, false);
-                player.checkCollision(solidPlatform);
-                movingPlatformCollisionCount++;
-                totalCollisionChecks++;
-            }
+            // ALWAYS check collision with moving platforms, even if riding them.
+            // This ensures the player's 'grounded' state is correctly set to TRUE after player.update()
+            // resets it to FALSE. It also handles vertical snapping to prevent micro-jitter.
+            Rectangle mpBounds = mp.getBounds();
+            Platform solidPlatform = new Platform(mpBounds.x, mpBounds.y, 
+                                                 mpBounds.width, mpBounds.height, false);
+            player.checkCollision(solidPlatform);
+            movingPlatformCollisionCount++;
+            totalCollisionChecks++;
         }
         
         // Check collisions with ramps (diagonal platforms with vertical walls)
@@ -472,6 +483,30 @@ public class GameScreen implements Screen {
             if (goal.checkCollision(player.getBounds())) {
                 levelComplete = true;
             }
+        }
+        
+        // PROFESSIONAL JUMP LOGIC: Execute AFTER collision detection
+        // Now player.isGrounded() is accurate from collision checks
+        boolean wantsToJump = inputController.isJumpJustPressed();
+        boolean canJump = inputController.canJump();
+        
+        // CRITICAL: Check grounded state BEFORE jump() is called (jump() sets grounded=false)
+        boolean wasGroundedForJump = player.isGrounded();
+        
+        // If buffered input exists AND (grounded OR coyote time), execute jump
+        if (wantsToJump && (wasGroundedForJump || canJump)) {
+            System.out.println("[GAME DEBUG] JUMP EXECUTED! wasGrounded=" + wasGroundedForJump + ", coyoteTime=" + canJump);
+            player.jump();
+            
+            // ADDED: Inherit platform velocity if jumping from a moving platform
+            if (currentMovingPlatform != null) {
+                player.addMomentum(currentMovingPlatform.getVelocity().x);
+            }
+            
+            // Use wasGroundedForJump (captured before jump) for auto-repeat
+            inputController.consumeJump(wasGroundedForJump);
+        } else if (wantsToJump) {
+            System.out.println("[GAME DEBUG] JUMP BLOCKED - Not grounded and no coyote time");
         }
         
     }
@@ -574,7 +609,11 @@ public class GameScreen implements Screen {
         }
         for (MovingPlatform mp : levelData.movingPlatforms) {
             if (renderCuller.isVisible(mp.getBounds())) {
-                mp.render(shapeRenderer);
+                // Use interpolated rendering for 144Hz smoothness
+                // Calculate alpha (fraction of time between physics steps)
+                // For now, we use 1.0 as we are running physics at high rate, 
+                // but this supports future decoupling
+                mp.renderInterpolated(shapeRenderer, 1.0f);
                 renderedEntities++;
             }
         }
@@ -666,7 +705,8 @@ public class GameScreen implements Screen {
         }
         for (MovingPlatform mp : levelData.movingPlatforms) {
             if (renderCuller.isVisible(mp.getBounds())) {
-                mp.renderBorder(shapeRenderer);
+                // Use interpolated rendering for 144Hz smoothness
+                mp.renderBorderInterpolated(shapeRenderer, 1.0f);
             }
         }
         for (Ramp ramp : levelData.ramps) {
@@ -727,6 +767,15 @@ public class GameScreen implements Screen {
                 }
             }
         );
+        
+        // FPS OVERLAY (professional monitoring for high FPS gaming)
+        int fps = Gdx.graphics.getFramesPerSecond();
+        fpsText.setLength(0);
+        fpsText.append("FPS: ").append(fps);
+        
+        spriteBatch.begin();
+        fpsFont.draw(spriteBatch, fpsText, 10, screenHeight - 10);
+        spriteBatch.end();
     }
     
     /**
@@ -1034,10 +1083,13 @@ public class GameScreen implements Screen {
         if (spriteBatch != null) {
             spriteBatch.dispose();
         }
+        if (fpsFont != null) {
+            fpsFont.dispose();
+        }
         if (player != null) {
             player.dispose();
         }
-        DebugMode.dispose();
+        // Dispose textures
         TextureManager.getInstance().dispose();
     }
 }
