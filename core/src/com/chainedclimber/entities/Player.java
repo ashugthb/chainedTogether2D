@@ -23,13 +23,15 @@ public class Player {
     private TextureRegion playerRegion;
     private boolean facingRight = true;
     private float animationTimer = 0f;
+    private float[] color; // Player tint color
     
-    public Player(float startX, float startY) {
+    public Player(float startX, float startY, float[] color) {
         this.position = new Vector2(startX, startY);
         this.previousPosition = new Vector2(startX, startY);
         this.velocity = new Vector2(0, 0);
         this.grounded = false;
         this.bounds = new Rectangle(startX, startY, Constants.PLAYER_WIDTH, Constants.PLAYER_HEIGHT);
+        this.color = color;
         
         // Load player sprite (PNG with transparent background)
         try {
@@ -39,6 +41,11 @@ public class Player {
         } catch (Exception e) {
             Gdx.app.error("Player", "Failed to load player texture: " + e.getMessage());
         }
+    }
+    
+    // Overload for backward compatibility (defaults to Green)
+    public Player(float startX, float startY) {
+        this(startX, startY, Constants.PLAYER_COLOR);
     }
     
     public void update(float deltaTime, float worldWidth) {
@@ -215,8 +222,8 @@ public class Player {
     
     // Legacy rendering with shapes (fallback)
     public void render(ShapeRenderer renderer) {
-        // Render player body (bright green)
-        renderer.setColor(Constants.PLAYER_COLOR[0], Constants.PLAYER_COLOR[1], Constants.PLAYER_COLOR[2], 1);
+        // Render player body (using instance color)
+        renderer.setColor(color[0], color[1], color[2], 1);
         renderer.rect(position.x, position.y, Constants.PLAYER_WIDTH, Constants.PLAYER_HEIGHT);
         
         // Add visual indicator when grounded (darker green bar at feet)
@@ -242,9 +249,12 @@ public class Player {
             float renderHeight = Constants.PLAYER_HEIGHT;
             float offsetY = -4; // Slight offset to make feet touch ground better
             
+            // Apply player tint
+            batch.setColor(color[0], color[1], color[2], 1);
             batch.draw(playerRegion, 
                        position.x, position.y + offsetY, 
                        renderWidth, renderHeight);
+            batch.setColor(1, 1, 1, 1); // Reset color
         }
     }
     

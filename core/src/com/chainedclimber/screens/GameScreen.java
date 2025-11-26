@@ -44,7 +44,8 @@ public class GameScreen implements Screen {
     private com.badlogic.gdx.graphics.g2d.BitmapFont fpsFont;
     private StringBuilder fpsText = new StringBuilder();
     
-    private Player player;
+    private Player player1;
+    private Player player2;
     private LevelData levelData;
     private InputController inputController;
     
@@ -171,7 +172,11 @@ public class GameScreen implements Screen {
         
         // Find spawn point in matrix (marked with @/SPAWN_POINT)
         Vector2 spawnPoint = findSpawnPointInMatrix(currentLevelMatrix);
-        player = new Player(spawnPoint.x, spawnPoint.y);
+        
+        // Initialize TWO players
+        player1 = new Player(spawnPoint.x - 20, spawnPoint.y, new float[]{0.2f, 0.8f, 0.2f}); // Green
+        player2 = new Player(spawnPoint.x + 20, spawnPoint.y, new float[]{0.2f, 0.2f, 0.8f}); // Blue
+        
         lastCheckpoint = new Vector2(spawnPoint.x, spawnPoint.y);
     }
     
@@ -296,68 +301,12 @@ public class GameScreen implements Screen {
             }
         }
         
-        // STEP 2: Check if player is standing on a moving platform and apply platform movement
-        MovingPlatform ridingPlatform = null;
-        Rectangle pBounds = player.getBounds();
-        
-        for (MovingPlatform mp : levelData.movingPlatforms) {
-            Rectangle mpBounds = mp.getBounds();
-            
-            // Calculate vertical distance between player's feet and platform's top surface
-            float playerBottom = pBounds.y;
-            float platformTop = mpBounds.y + mpBounds.height;
-            float verticalDistance = Math.abs(playerBottom - platformTop);
-            
-            // Check if player horizontally overlaps with platform
-            boolean horizontalOverlap = (pBounds.x < mpBounds.x + mpBounds.width) && 
-                                       (pBounds.x + pBounds.width > mpBounds.x);
-            
-            // Determine if player is standing on the platform:
-            // 1. Player must horizontally overlap with platform
-            // 2. Player's feet must be within 5 pixels of platform top (increased tolerance for high speed)
-            // 3. Player must not be jumping upward (velocity.y <= 0)
-            boolean standingOnPlatform = horizontalOverlap && 
-                                        (verticalDistance <= 5) && 
-                                        (player.getVelocity().y <= 10); // Strict velocity check
-            
-            if (standingOnPlatform) {
-                ridingPlatform = mp;
-                
-                // Only set grounded and apply movement if player is actually on top (not jumping off)
-                if (player.getVelocity().y <= 0) {
-                    player.setGrounded(true);
-                    
-                    // Apply platform's movement delta to player position
-                    player.getPosition().x += mp.getLastDeltaX();
-                    player.getPosition().y += mp.getLastDeltaY();
-                    player.getBounds().setPosition(player.getPosition().x, player.getPosition().y);
-                }
-                
-                break;
-            }
-        }
-        
-        // STEP 3: PROFESSIONAL INPUT SYSTEM (AAA platformer technique)
+        // STEP 2: Update Input
         inputController.update();
         
-        // CRITICAL: Cache grounded state BEFORE any updates
-        // This is the "real" grounded state from last frame's collision detection
-        boolean wasGroundedBeforeUpdate = player.isGrounded();
-        
-        // Update coyote time based on ground state (must be before jump check)
-        inputController.updateCoyoteTime(wasGroundedBeforeUpdate);
-        
-        // Horizontal movement
-        if (inputController.isLeftPressed()) {
-            player.moveLeft();
-        } else if (inputController.isRightPressed()) {
-            player.moveRight();
-        } else {
-            player.stopHorizontalMovement();
-        }
-        
-        // STEP 4: Update player physics FIRST (before jump check)
-        player.update(delta, worldWidth);
+        // STEP 3: Update Players
+        updatePlayerLogic(player1, inputController.p1, delta);
+        updatePlayerLogic(player2, inputController.p2, delta);
         
         // Update breakable blocks
         for (BreakableBlock bb : levelData.breakableBlocks) {
@@ -371,63 +320,94 @@ public class GameScreen implements Screen {
         for (Goal goal : levelData.goals) {
             goal.update(delta);
         }
+    }
+
+    private void updatePlayerLogic(Player player, InputController.PlayerInputState inputState, float delta) {
+        // Check if player is standing on a moving platform
+        MovingPlatform ridingPlatform = null;
+        Rectangle pBounds = player.getBounds();
         
-        // Reset friction (will be set by ice blocks if standing on them)
+        for (MovingPlatform mp : levelData.movingPlatforms) {
+            Rectangle mpBounds = mp.getBounds();
+            float playerBottom = pBounds.y;
+            float platformTop = mpBounds.y + mpBounds.height;
+            float verticalDistance = Math.abs(playerBottom - platformTop);
+            boolean horizontalOverlap = (pBounds.x < mpBounds.x + mpBounds.width) && 
+                                       (pBounds.x + pBounds.width > mpBounds.x);
+            
+            boolean standingOnPlatform = horizontalOverlap && 
+                                        (verticalDistance <= 5) && 
+                                        (player.getVelocity().y <= 10);
+            
+            if (standingOnPlatform) {
+                ridingPlatform = mp;
+                if (player.getVelocity().y <= 0) {
+                    player.setGrounded(true);
+                    player.getPosition().x += mp.getLastDeltaX();
+                    player.getPosition().y += mp.getLastDeltaY();
+                    player.getBounds().setPosition(player.getPosition().x, player.getPosition().y);
+                }
+                break;
+            }
+        }
+
+        // Cache grounded state
+        boolean wasGroundedBeforeUpdate = player.isGrounded();
+        
+        // Update coyote time
+        inputState.updateCoyoteTime(wasGroundedBeforeUpdate);
+        
+        // Horizontal movement
+        if (inputState.isLeftPressed()) {
+            player.moveLeft();
+        } else if (inputState.isRightPressed()) {
+            player.moveRight();
+        } else {
+            player.stopHorizontalMovement();
+        }
+        
+        // Update player physics
+        player.update(delta, worldWidth);
+        
+        // Reset friction
         player.resetFriction();
         
-        // OPTIMIZED: Use spatial hash for collision detection (O(1) instead of O(n))
+        // Collision Detection
         Rectangle playerBounds = player.getBounds();
         Array<Platform> nearbyPlatforms = platformSpatialHash.query(playerBounds);
         Array<Spike> nearbySpikes = spikeSpatialHash.query(playerBounds);
         
-        // Track spatial hash queries
-        spatialHashQueryCount += 2; // One for platforms, one for spikes
+        spatialHashQueryCount += 2;
         
-        // Check collisions only with nearby platforms
         for (Platform platform : nearbyPlatforms) {
             player.checkCollision(platform);
             platformCollisionCount++;
             totalCollisionChecks++;
         }
         
-        // Check collisions with bouncy blocks
         for (BouncyBlock bouncy : levelData.bouncyBlocks) {
-            // Check if player is landing on top
             if (player.getBounds().overlaps(bouncy.getBounds())) {
                 float overlapBottom = (player.getBounds().y + player.getBounds().height) - bouncy.getBounds().y;
                 float overlapTop = (bouncy.getBounds().y + bouncy.getBounds().height) - player.getBounds().y;
-                
                 if (overlapTop < overlapBottom && overlapTop > 0) {
-                    // Landing from above - bounce!
                     player.bounce(bouncy.getBounceVelocity());
                 }
             }
         }
         
-        // Check collisions with ice blocks (solid with low friction)
         for (IceBlock ice : levelData.iceBlocks) {
-            // Treat ice as solid platform
             Platform icePlatform = new Platform(ice.getBounds().x, ice.getBounds().y,
                                                ice.getBounds().width, ice.getBounds().height, false);
             player.checkCollision(icePlatform);
-            
-            // Apply friction reduction when player is on top
             if (player.getBounds().overlaps(ice.getBounds())) {
                 float overlapTop = (ice.getBounds().y + ice.getBounds().height) - player.getBounds().y;
-                if (overlapTop < 10 && overlapTop > 0) { // Player is on top
+                if (overlapTop < 10 && overlapTop > 0) {
                     player.setFrictionMultiplier(ice.getFrictionMultiplier());
                 }
             }
         }
         
-        // Handle moving platform collisions (treat as solid obstacles)
-        // Platform movement is already applied via setPlatformVelocity() before player.update()
-        currentMovingPlatform = ridingPlatform;
-        
         for (MovingPlatform mp : levelData.movingPlatforms) {
-            // ALWAYS check collision with moving platforms, even if riding them.
-            // This ensures the player's 'grounded' state is correctly set to TRUE after player.update()
-            // resets it to FALSE. It also handles vertical snapping to prevent micro-jitter.
             Rectangle mpBounds = mp.getBounds();
             Platform solidPlatform = new Platform(mpBounds.x, mpBounds.y, 
                                                  mpBounds.width, mpBounds.height, false);
@@ -436,21 +416,17 @@ public class GameScreen implements Screen {
             totalCollisionChecks++;
         }
         
-        // Check collisions with ramps (diagonal platforms with vertical walls)
         for (Ramp ramp : levelData.ramps) {
             if (ramp.checkCollision(player.getBounds(), player.getPosition(), player.getVelocity())) {
                 player.setGrounded(true);
             }
         }
         
-        // Check collisions with breakable blocks (only if not broken)
         for (BreakableBlock bb : levelData.breakableBlocks) {
             if (!bb.isBroken()) {
                 Platform tempPlatform = new Platform(bb.getBounds().x, bb.getBounds().y,
                                                     bb.getBounds().width, bb.getBounds().height, false);
                 player.checkCollision(tempPlatform);
-                
-                // Check if player is standing on top
                 float overlapTop = (bb.getBounds().y + bb.getBounds().height) - player.getBounds().y;
                 if (overlapTop < 10 && overlapTop > 0) {
                     bb.setPlayerOnTop(true);
@@ -460,17 +436,14 @@ public class GameScreen implements Screen {
             }
         }
         
-        // Check collisions only with nearby spikes
         for (Spike spike : nearbySpikes) {
             spikeCollisionCount++;
             totalCollisionChecks++;
             if (spike.checkCollision(playerBounds)) {
-                // Player hit spike - respawn at last checkpoint
                 player.resetPosition(lastCheckpoint);
             }
         }
         
-        // Check checkpoint activation
         for (Checkpoint cp : levelData.checkpoints) {
             if (!cp.isActivated() && cp.checkCollision(player.getBounds())) {
                 cp.activate();
@@ -478,37 +451,24 @@ public class GameScreen implements Screen {
             }
         }
         
-        // Check goal completion
         for (Goal goal : levelData.goals) {
             if (goal.checkCollision(player.getBounds())) {
                 levelComplete = true;
             }
         }
         
-        // PROFESSIONAL JUMP LOGIC: Execute AFTER collision detection
-        // Now player.isGrounded() is accurate from collision checks
-        boolean wantsToJump = inputController.isJumpJustPressed();
-        boolean canJump = inputController.canJump();
-        
-        // CRITICAL: Check grounded state BEFORE jump() is called (jump() sets grounded=false)
+        // Jump Logic
+        boolean wantsToJump = inputState.isJumpJustPressed();
+        boolean canJump = inputState.canJump();
         boolean wasGroundedForJump = player.isGrounded();
         
-        // If buffered input exists AND (grounded OR coyote time), execute jump
         if (wantsToJump && (wasGroundedForJump || canJump)) {
-            System.out.println("[GAME DEBUG] JUMP EXECUTED! wasGrounded=" + wasGroundedForJump + ", coyoteTime=" + canJump);
             player.jump();
-            
-            // ADDED: Inherit platform velocity if jumping from a moving platform
-            if (currentMovingPlatform != null) {
-                player.addMomentum(currentMovingPlatform.getVelocity().x);
+            if (ridingPlatform != null) {
+                player.addMomentum(ridingPlatform.getVelocity().x);
             }
-            
-            // Use wasGroundedForJump (captured before jump) for auto-repeat
-            inputController.consumeJump(wasGroundedForJump);
-        } else if (wantsToJump) {
-            System.out.println("[GAME DEBUG] JUMP BLOCKED - Not grounded and no coyote time");
+            inputState.consumeJump(wasGroundedForJump);
         }
-        
     }
     
     /**
@@ -519,9 +479,9 @@ public class GameScreen implements Screen {
         // CAMERA SYSTEM - Works for ANY map size
         // ========================================
         
-        // 1. Calculate player center position in world coordinates
-        float playerCenterX = player.getPosition().x + Constants.PLAYER_WIDTH / 2;
-        float playerCenterY = player.getPosition().y + Constants.PLAYER_HEIGHT / 2;
+        // 1. Calculate center position between both players
+        float playerCenterX = (player1.getPosition().x + player2.getPosition().x) / 2 + Constants.PLAYER_WIDTH / 2;
+        float playerCenterY = (player1.getPosition().y + player2.getPosition().y) / 2 + Constants.PLAYER_HEIGHT / 2;
         
         // 2. Get ACTUAL viewport dimensions (changes with window resize)
         float viewportWidth = camera.viewportWidth;
@@ -672,8 +632,10 @@ public class GameScreen implements Screen {
         }
         
         // Player rendering in SAME batch (no overhead)
-        player.updateDirection(Gdx.graphics.getDeltaTime());
-        player.renderSprite(spriteBatch);
+        player1.updateDirection(Gdx.graphics.getDeltaTime());
+        player1.renderSprite(spriteBatch);
+        player2.updateDirection(Gdx.graphics.getDeltaTime());
+        player2.renderSprite(spriteBatch);
         
         spriteBatch.end();
         
@@ -1065,13 +1027,16 @@ public class GameScreen implements Screen {
         
         // Log debug info when enabled
         if (DebugMode.isEnabled()) {
-            DebugMode.log("Player", "Position", player.getPosition());
-            DebugMode.log("Player", "Velocity", player.getVelocity());
-            DebugMode.log("Player", "Grounded", player.isGrounded());
-            DebugMode.log("Performance", "FPS", Gdx.graphics.getFramesPerSecond());
-            DebugMode.log("Performance", "Physics ms", String.format("%.3f", physicsTimeAvgMs));
-            DebugMode.log("Collisions", "Platform", platformCollisionCount);
-            DebugMode.log("Collisions", "Spike", spikeCollisionCount);
+            DebugMode.log("P1", "Pos", player1.getPosition());
+            DebugMode.log("P1", "Vel", player1.getVelocity());
+            DebugMode.log("P1", "Grounded", player1.isGrounded());
+            DebugMode.log("P2", "Pos", player2.getPosition());
+            DebugMode.log("P2", "Vel", player2.getVelocity());
+            DebugMode.log("P2", "Grounded", player2.isGrounded());
+            DebugMode.log("Perf", "FPS", Gdx.graphics.getFramesPerSecond());
+            DebugMode.log("Perf", "Phys ms", String.format("%.3f", physicsTimeAvgMs));
+            DebugMode.log("Col", "Plat", platformCollisionCount);
+            DebugMode.log("Col", "Spike", spikeCollisionCount);
         }
     }
     
@@ -1086,8 +1051,11 @@ public class GameScreen implements Screen {
         if (fpsFont != null) {
             fpsFont.dispose();
         }
-        if (player != null) {
-            player.dispose();
+        if (player1 != null) {
+            player1.dispose();
+        }
+        if (player2 != null) {
+            player2.dispose();
         }
         // Dispose textures
         TextureManager.getInstance().dispose();
