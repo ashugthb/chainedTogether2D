@@ -23,6 +23,7 @@ import com.chainedclimber.entities.Platform;
 import com.chainedclimber.entities.Player;
 import com.chainedclimber.entities.Ramp;
 import com.chainedclimber.entities.Spike;
+import com.chainedclimber.systems.ChainPhysics;
 import com.chainedclimber.systems.InputController;
 import com.chainedclimber.systems.RenderCuller;
 import com.chainedclimber.systems.SpatialHash;
@@ -48,6 +49,7 @@ public class GameScreen implements Screen {
     private Player player2;
     private LevelData levelData;
     private InputController inputController;
+    private ChainPhysics chainPhysics;
     
     // Checkpoint system
     private Vector2 lastCheckpoint;
@@ -177,6 +179,9 @@ public class GameScreen implements Screen {
         player1 = new Player(spawnPoint.x - 20, spawnPoint.y, new float[]{0.2f, 0.8f, 0.2f}); // Green
         player2 = new Player(spawnPoint.x + 20, spawnPoint.y, new float[]{0.2f, 0.2f, 0.8f}); // Blue
         
+        // Initialize chain physics
+        chainPhysics = new ChainPhysics();
+        
         lastCheckpoint = new Vector2(spawnPoint.x, spawnPoint.y);
     }
     
@@ -304,16 +309,21 @@ public class GameScreen implements Screen {
         // STEP 2: Update Input
         inputController.update();
         
-        // STEP 3: Update Players
-        updatePlayerLogic(player1, inputController.p1, delta);
-        updatePlayerLogic(player2, inputController.p2, delta);
+        // STEP 3: Apply Forces & Integrate (Predict New Positions)
+        applyForcesAndIntegrate(player1, inputController.p1, delta);
+        applyForcesAndIntegrate(player2, inputController.p2, delta);
         
-        // Update breakable blocks
+        // STEP 4: Solve Chain Constraint (Pull them together)
+        chainPhysics.solve(player1, player2);
+        
+        // STEP 5: Solve Map Collisions (Keep them out of walls)
+        resolveCollisions(player1);
+        resolveCollisions(player2);
+        
+        // STEP 6: Update other entities
         for (BreakableBlock bb : levelData.breakableBlocks) {
             bb.update(delta);
         }
-        
-        // Update checkpoints and goal
         for (Checkpoint cp : levelData.checkpoints) {
             cp.update(delta);
         }
@@ -322,7 +332,7 @@ public class GameScreen implements Screen {
         }
     }
 
-    private void updatePlayerLogic(Player player, InputController.PlayerInputState inputState, float delta) {
+    private void applyForcesAndIntegrate(Player player, InputController.PlayerInputState inputState, float delta) {
         // Check if player is standing on a moving platform
         MovingPlatform ridingPlatform = null;
         Rectangle pBounds = player.getBounds();
@@ -343,6 +353,7 @@ public class GameScreen implements Screen {
                 ridingPlatform = mp;
                 if (player.getVelocity().y <= 0) {
                     player.setGrounded(true);
+                    // Apply platform velocity to position directly (before integration)
                     player.getPosition().x += mp.getLastDeltaX();
                     player.getPosition().y += mp.getLastDeltaY();
                     player.getBounds().setPosition(player.getPosition().x, player.getPosition().y);
@@ -357,7 +368,7 @@ public class GameScreen implements Screen {
         // Update coyote time
         inputState.updateCoyoteTime(wasGroundedBeforeUpdate);
         
-        // Horizontal movement
+        // Horizontal movement (Input Force)
         if (inputState.isLeftPressed()) {
             player.moveLeft();
         } else if (inputState.isRightPressed()) {
@@ -366,13 +377,26 @@ public class GameScreen implements Screen {
             player.stopHorizontalMovement();
         }
         
-        // Update player physics
+        // Jump Logic (Apply Impulse)
+        boolean wantsToJump = inputState.isJumpJustPressed();
+        boolean canJump = inputState.canJump();
+        
+        if (wantsToJump && (wasGroundedBeforeUpdate || canJump)) {
+            player.jump();
+            if (ridingPlatform != null) {
+                player.addMomentum(ridingPlatform.getVelocity().x);
+            }
+            inputState.consumeJump(wasGroundedBeforeUpdate);
+        }
+        
+        // Integrate (Gravity + Velocity -> Position)
         player.update(delta, worldWidth);
         
         // Reset friction
         player.resetFriction();
-        
-        // Collision Detection
+    }
+
+    private void resolveCollisions(Player player) {
         Rectangle playerBounds = player.getBounds();
         Array<Platform> nearbyPlatforms = platformSpatialHash.query(playerBounds);
         Array<Spike> nearbySpikes = spikeSpatialHash.query(playerBounds);
@@ -456,19 +480,6 @@ public class GameScreen implements Screen {
                 levelComplete = true;
             }
         }
-        
-        // Jump Logic
-        boolean wantsToJump = inputState.isJumpJustPressed();
-        boolean canJump = inputState.canJump();
-        boolean wasGroundedForJump = player.isGrounded();
-        
-        if (wantsToJump && (wasGroundedForJump || canJump)) {
-            player.jump();
-            if (ridingPlatform != null) {
-                player.addMomentum(ridingPlatform.getVelocity().x);
-            }
-            inputState.consumeJump(wasGroundedForJump);
-        }
     }
     
     /**
@@ -549,6 +560,10 @@ public class GameScreen implements Screen {
                 renderedEntities++;
             }
         }
+        
+        // Render Chain (Filled Shape)
+        chainPhysics.render(shapeRenderer, player1, player2);
+        
         for (Spike spike : levelData.spikes) {
             if (renderCuller.isVisible(spike.getBounds())) {
                 spike.render(shapeRenderer);
