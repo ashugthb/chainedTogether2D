@@ -6,6 +6,7 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.graphics.glutils.ShaderProgram;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
@@ -32,6 +33,7 @@ import com.chainedclimber.utils.Constants;
 import com.chainedclimber.utils.LevelData;
 import com.chainedclimber.utils.LevelGenerator;
 import com.chainedclimber.utils.LevelMatrix;
+import com.chainedclimber.utils.ShaderFactory;
 import com.chainedclimber.utils.TextureManager;
 
 public class GameScreen implements Screen {
@@ -50,6 +52,7 @@ public class GameScreen implements Screen {
     private LevelData levelData;
     private InputController inputController;
     private ChainPhysics chainPhysics;
+    private ShaderProgram grayscaleShader;
     
     // Checkpoint system
     private Vector2 lastCheckpoint;
@@ -182,6 +185,9 @@ public class GameScreen implements Screen {
         // Initialize chain physics
         chainPhysics = new ChainPhysics();
         
+        // Initialize shaders
+        grayscaleShader = ShaderFactory.createGrayscaleShader();
+
         lastCheckpoint = new Vector2(spawnPoint.x, spawnPoint.y);
     }
     
@@ -624,6 +630,9 @@ public class GameScreen implements Screen {
         spriteBatch.setProjectionMatrix(camera.combined);
         spriteBatch.begin();
         
+        // 1. Draw Background/Level Entities (Normal)
+        spriteBatch.setShader(null);
+
         // Render ALL textured entities in a single batch
         for (Platform platform : levelData.platforms) {
             if (renderCuller.isVisible(platform.getBounds())) {
@@ -646,12 +655,23 @@ public class GameScreen implements Screen {
             }
         }
         
-        // Player rendering in SAME batch (no overhead)
+        // 2. Flush the batch to send background to GPU
+        spriteBatch.flush();
+
+        // 3. Switch to Grayscale for Character
+        if (grayscaleShader != null) {
+            spriteBatch.setShader(grayscaleShader);
+        }
+
+        // Player rendering
         player1.updateDirection(Gdx.graphics.getDeltaTime());
         player1.renderSprite(spriteBatch);
         player2.updateDirection(Gdx.graphics.getDeltaTime());
         player2.renderSprite(spriteBatch);
         
+        // 4. Reset for next frame
+        spriteBatch.setShader(null);
+
         spriteBatch.end();
         
         // MOBILE OPTIMIZATION: Batch ALL line rendering in ONE begin/end call
@@ -1071,6 +1091,9 @@ public class GameScreen implements Screen {
         }
         if (player2 != null) {
             player2.dispose();
+        }
+        if (grayscaleShader != null) {
+            grayscaleShader.dispose();
         }
         // Dispose textures
         TextureManager.getInstance().dispose();
