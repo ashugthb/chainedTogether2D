@@ -2,7 +2,6 @@ package com.chainedclimber.utils;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
-import com.badlogic.gdx.utils.GdxRuntimeException;
 
 public class ShaderFactory {
 
